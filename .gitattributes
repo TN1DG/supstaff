@@ -1,0 +1,16 @@
+# Normalize line endings: LF in the repo, native in the working tree.
+* text=auto eol=lf
+
+# Binary / generated assets — never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+
+# Lockfiles: keep LF, collapse diffs in reviews.
+package-lock.json -diff linguist-generated
