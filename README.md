@@ -13,9 +13,9 @@ Tailwind + shadcn/ui, deployed on Vercel.
 | Phase | Scope | State |
 | --- | --- | --- |
 | 0 | Foundation: auth, roles, staff + residents, audit log, outbox, design system | **built** |
-| 1 | Handovers | next |
-| 2 | Night building checks | planned |
-| 3 | Full eMAR | planned |
+| 1 | Handovers | **built** |
+| 2 | Night building checks | **built** |
+| 3 | Full eMAR | next |
 | 4 | Maintenance capture + forward to Saw-it | planned |
 | 5 | Salesforce / Saw-it API integration + manager insights | planned |
 

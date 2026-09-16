@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { and, eq, gte } from "drizzle-orm";
 import { getDb } from "@/db";
-import { handovers, residents } from "@/db/schema";
+import { handovers, nightCheckRounds, residents } from "@/db/schema";
 import { requireStaff } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/icon";
+import { currentNightOf } from "@/lib/night-checks";
 
 function greeting(d = new Date()) {
   const h = d.getHours();
@@ -41,8 +42,9 @@ export default async function TodayPage() {
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
+  const checkDate = currentNightOf(new Date());
 
-  const [residentCount, todaysHandovers] = await Promise.all([
+  const [residentCount, todaysHandovers, tonightRounds] = await Promise.all([
     db.$count(residents, and(eq(residents.siteId, staff.siteId), eq(residents.status, "active"))),
     db.$count(
       handovers,
@@ -51,7 +53,29 @@ export default async function TodayPage() {
         gte(handovers.createdAt, startOfDay),
       ),
     ),
+    db.query.nightCheckRounds.findMany({
+      where: and(
+        eq(nightCheckRounds.siteId, staff.siteId),
+        eq(nightCheckRounds.checkDate, checkDate),
+      ),
+      columns: { id: true, roundTime: true, status: true },
+    }),
   ]);
+
+  const inProgressRound = tonightRounds.find((r) => r.status === "in_progress");
+  const nightCheckLink = inProgressRound
+    ? {
+        href: `/night-checks/${inProgressRound.id}`,
+        icon: "MoonStar",
+        title: "Continue the night check",
+        body: `You're partway through the ${inProgressRound.roundTime} round — pick up where you left off.`,
+      }
+    : {
+        href: "/night-checks",
+        icon: "MoonStar",
+        title: "Do the night check",
+        body: "Check in on the building any time during your shift — no need to wait for the scheduled time.",
+      };
 
   const today = new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
@@ -74,7 +98,7 @@ export default async function TodayPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {QUICK_LINKS.map((link) => (
+        {[nightCheckLink, ...QUICK_LINKS].map((link) => (
           <Link key={link.href} href={link.href} className="group">
             <Card className="h-full transition-colors group-hover:border-primary/40 group-hover:bg-accent/30">
               <CardHeader>

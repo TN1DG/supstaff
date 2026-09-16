@@ -25,7 +25,6 @@ export const NAV: NavSection[] = [
         title: "Night checks",
         href: "/night-checks",
         icon: "MoonStar",
-        soon: true,
       },
       {
         title: "Building reports",

@@ -49,6 +49,34 @@ export const outboxStatus = pgEnum("outbox_status", [
   "failed",
 ]);
 
+export const nightCheckItemStatus = pgEnum("night_check_item_status", [
+  "ok",
+  "attention",
+  "na",
+]);
+
+/**
+ * A round row only ever exists once someone checks in (`in_progress`/`complete`)
+ * or the daily sweep cron gives up on it (`missed`) — there is no stored
+ * "pending" state; an unstarted-but-not-yet-due round is computed, not
+ * persisted. See `src/lib/night-checks.ts`.
+ */
+export const nightCheckRoundStatus = pgEnum("night_check_round_status", [
+  "in_progress",
+  "complete",
+  "missed",
+]);
+
+/**
+ * `simple` items render as the generic OK/Attention/N/A pill; `resident_welfare`
+ * items render as the floor/room drill-down instead, and their status is
+ * derived (never staff-set directly) — see src/app/(app)/night-checks/actions.ts.
+ */
+export const nightCheckItemKind = pgEnum("night_check_item_kind", [
+  "simple",
+  "resident_welfare",
+]);
+
 /* ------------------------------------------------------------------ */
 /* Core                                                                */
 /* ------------------------------------------------------------------ */
@@ -248,6 +276,127 @@ export const handoverAcknowledgements = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Night building checks (Phase 2)                                     */
+/* ------------------------------------------------------------------ */
+
+/** Manager-editable checklist — walked once per round. Order via `sortOrder`. */
+export const nightCheckTemplateItems = pgTable("night_check_template_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  siteId: uuid("site_id")
+    .notNull()
+    .references(() => sites.id, { onDelete: "restrict" }),
+  area: text("area").notNull(),
+  description: text("description").notNull(),
+  kind: nightCheckItemKind("kind").notNull().default("simple"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const nightCheckRounds = pgTable(
+  "night_check_rounds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    /** The night this round belongs to — the 01:00–07:00 rounds are the next calendar day. */
+    checkDate: date("check_date").notNull(),
+    /** One of ROUND_TIMES, e.g. "23:00" — see `src/lib/night-checks.ts`. */
+    roundTime: text("round_time").notNull(),
+    /** Null only for a `missed` row the cron created — no one checked in. */
+    staffId: uuid("staff_id").references(() => staff.id, { onDelete: "set null" }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedByStaffId: uuid("completed_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    status: nightCheckRoundStatus("status").notNull().default("in_progress"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("night_check_round_unique").on(t.siteId, t.checkDate, t.roundTime),
+  ],
+);
+
+export const nightCheckItemResults = pgTable(
+  "night_check_item_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => nightCheckRounds.id, { onDelete: "cascade" }),
+    templateItemId: uuid("template_item_id")
+      .notNull()
+      .references(() => nightCheckTemplateItems.id, { onDelete: "restrict" }),
+    status: nightCheckItemStatus("status"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("night_check_item_unique").on(t.roundId, t.templateItemId)],
+);
+
+/** Manager-configurable list of things staff can flag during a resident-welfare room check. */
+export const nightCheckSituationTypes = pgTable("night_check_situation_types", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  siteId: uuid("site_id")
+    .notNull()
+    .references(() => sites.id, { onDelete: "restrict" }),
+  label: text("label").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One row per room per round, snapshotted at check-in (same pattern as
+ * `nightCheckItemResults`, but keyed by room number instead of template
+ * item). `templateItemId` always points at the round's resident-welfare item.
+ */
+export const nightCheckRoomChecks = pgTable(
+  "night_check_room_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => nightCheckRounds.id, { onDelete: "cascade" }),
+    templateItemId: uuid("template_item_id")
+      .notNull()
+      .references(() => nightCheckTemplateItems.id, { onDelete: "restrict" }),
+    roomNumber: integer("room_number").notNull(),
+    note: text("note"),
+    lastEditedByStaffId: uuid("last_edited_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("night_check_room_check_unique").on(t.roundId, t.roomNumber)],
+);
+
+/** Junction: which situation types were ticked for a given room check. */
+export const nightCheckRoomSituations = pgTable(
+  "night_check_room_situations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roomCheckId: uuid("room_check_id")
+      .notNull()
+      .references(() => nightCheckRoomChecks.id, { onDelete: "cascade" }),
+    situationTypeId: uuid("situation_type_id")
+      .notNull()
+      .references(() => nightCheckSituationTypes.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("night_check_room_situation_unique").on(t.roomCheckId, t.situationTypeId),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Rate limiting — brute-force lockout for auth-sensitive actions      */
 /* ------------------------------------------------------------------ */
 
@@ -348,6 +497,98 @@ export const handoverAcknowledgementsRelations = relations(
   }),
 );
 
+export const nightCheckTemplateItemsRelations = relations(
+  nightCheckTemplateItems,
+  ({ one, many }) => ({
+    site: one(sites, {
+      fields: [nightCheckTemplateItems.siteId],
+      references: [sites.id],
+    }),
+    results: many(nightCheckItemResults),
+    roomChecks: many(nightCheckRoomChecks),
+  }),
+);
+
+export const nightCheckRoundsRelations = relations(
+  nightCheckRounds,
+  ({ one, many }) => ({
+    site: one(sites, {
+      fields: [nightCheckRounds.siteId],
+      references: [sites.id],
+    }),
+    staff: one(staff, {
+      fields: [nightCheckRounds.staffId],
+      references: [staff.id],
+      relationName: "nightCheckRoundStaff",
+    }),
+    completedBy: one(staff, {
+      fields: [nightCheckRounds.completedByStaffId],
+      references: [staff.id],
+      relationName: "nightCheckRoundCompletedBy",
+    }),
+    items: many(nightCheckItemResults),
+    roomChecks: many(nightCheckRoomChecks),
+  }),
+);
+
+export const nightCheckItemResultsRelations = relations(
+  nightCheckItemResults,
+  ({ one }) => ({
+    round: one(nightCheckRounds, {
+      fields: [nightCheckItemResults.roundId],
+      references: [nightCheckRounds.id],
+    }),
+    templateItem: one(nightCheckTemplateItems, {
+      fields: [nightCheckItemResults.templateItemId],
+      references: [nightCheckTemplateItems.id],
+    }),
+  }),
+);
+
+export const nightCheckSituationTypesRelations = relations(
+  nightCheckSituationTypes,
+  ({ one, many }) => ({
+    site: one(sites, {
+      fields: [nightCheckSituationTypes.siteId],
+      references: [sites.id],
+    }),
+    roomSituations: many(nightCheckRoomSituations),
+  }),
+);
+
+export const nightCheckRoomChecksRelations = relations(
+  nightCheckRoomChecks,
+  ({ one, many }) => ({
+    round: one(nightCheckRounds, {
+      fields: [nightCheckRoomChecks.roundId],
+      references: [nightCheckRounds.id],
+    }),
+    templateItem: one(nightCheckTemplateItems, {
+      fields: [nightCheckRoomChecks.templateItemId],
+      references: [nightCheckTemplateItems.id],
+    }),
+    lastEditedBy: one(staff, {
+      fields: [nightCheckRoomChecks.lastEditedByStaffId],
+      references: [staff.id],
+    }),
+    situations: many(nightCheckRoomSituations),
+  }),
+);
+
+export const nightCheckRoomSituationsRelations = relations(
+  nightCheckRoomSituations,
+  ({ one }) => ({
+    roomCheck: one(nightCheckRoomChecks, {
+      fields: [nightCheckRoomSituations.roomCheckId],
+      references: [nightCheckRoomChecks.id],
+    }),
+    situationType: one(nightCheckSituationTypes, {
+      fields: [nightCheckRoomSituations.situationTypeId],
+      references: [nightCheckSituationTypes.id],
+    }),
+  }),
+);
+
 /* ------------------------------------------------------------------ */
 /* Inferred types                                                      */
 /* ------------------------------------------------------------------ */
@@ -361,7 +602,16 @@ export type Handover = typeof handovers.$inferSelect;
 export type HandoverResidentEntry = typeof handoverResidentEntries.$inferSelect;
 export type AuditLogRow = typeof auditLog.$inferSelect;
 export type OutboxRow = typeof outbox.$inferSelect;
+export type NightCheckTemplateItem = typeof nightCheckTemplateItems.$inferSelect;
+export type NightCheckRound = typeof nightCheckRounds.$inferSelect;
+export type NightCheckItemResult = typeof nightCheckItemResults.$inferSelect;
+export type NightCheckSituationType = typeof nightCheckSituationTypes.$inferSelect;
+export type NightCheckRoomCheck = typeof nightCheckRoomChecks.$inferSelect;
+export type NightCheckRoomSituation = typeof nightCheckRoomSituations.$inferSelect;
 
 export type StaffRole = (typeof staffRole.enumValues)[number];
 export type ShiftType = (typeof shiftType.enumValues)[number];
 export type HandoverStatusValue = (typeof handoverStatus.enumValues)[number];
+export type NightCheckItemStatusValue = (typeof nightCheckItemStatus.enumValues)[number];
+export type NightCheckRoundStatusValue = (typeof nightCheckRoundStatus.enumValues)[number];
+export type NightCheckItemKindValue = (typeof nightCheckItemKind.enumValues)[number];
