@@ -5,9 +5,16 @@ import { getDb } from "@/db";
 import { nightCheckRounds, nightCheckTemplateItems } from "@/db/schema";
 import { requireStaff } from "@/lib/rbac";
 import { hasRole } from "@/lib/roles";
-import { ROUND_TIMES, currentNightOf, displayRoundStatus, isoDate } from "@/lib/night-checks";
+import {
+  ROUND_STATUS_META,
+  ROUND_TIMES,
+  currentNightOf,
+  displayRoundStatus,
+  isoDate,
+} from "@/lib/night-checks";
+import type { StatusTone } from "@/lib/status-tone";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckInButton } from "./check-in-button";
@@ -30,12 +37,12 @@ function nightsBack(n: number, from: string): string[] {
   return out;
 }
 
-const GRID_DOT: Record<string, string> = {
-  complete: "bg-success",
-  missed: "bg-destructive",
-  in_progress: "bg-warning",
-  due: "bg-warning/60",
-  not_due: "bg-muted-foreground/25",
+const DOT_CLASS: Record<StatusTone, string> = {
+  success: "bg-success",
+  info: "bg-accent",
+  warning: "bg-warning",
+  danger: "bg-destructive",
+  neutral: "bg-muted-foreground/25",
 };
 
 export default async function NightChecksPage() {
@@ -125,18 +132,13 @@ export default async function NightChecksPage() {
                   <span className="w-14 font-medium">{rt}</span>
                   {status === "not_due" ? (
                     <span className="text-sm text-muted-foreground">Not due yet</span>
-                  ) : status === "due" ? (
-                    <Badge className="border-warning/40 bg-warning/15 text-warning">
-                      Due now
-                    </Badge>
-                  ) : status === "in_progress" ? (
-                    <Badge variant="outline">In progress &middot; {round?.staff?.name}</Badge>
-                  ) : status === "complete" ? (
-                    <Badge className="border-success/40 bg-success/10 text-success">
-                      Complete &middot; {round?.staff?.name}
-                    </Badge>
                   ) : (
-                    <Badge variant="destructive">Missed</Badge>
+                    <StatusBadge tone={ROUND_STATUS_META[status].tone}>
+                      {ROUND_STATUS_META[status].label}
+                      {round?.staff?.name && (status === "in_progress" || status === "complete")
+                        ? ` · ${round.staff.name}`
+                        : ""}
+                    </StatusBadge>
                   )}
                 </div>
                 {round ? (
@@ -184,8 +186,8 @@ export default async function NightChecksPage() {
                       return (
                         <td key={rt} className="px-2 py-2 text-center">
                           <span
-                            className={`mx-auto block size-2.5 rounded-full ${GRID_DOT[status]}`}
-                            title={status.replace("_", " ")}
+                            className={`mx-auto block size-2.5 rounded-full ${DOT_CLASS[ROUND_STATUS_META[status].tone]}`}
+                            title={ROUND_STATUS_META[status].label}
                           />
                         </td>
                       );

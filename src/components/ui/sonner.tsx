@@ -34,6 +34,21 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
+          // Match the app's own tone system — a tinted surface with the
+          // semantic token driving the border/icon/text, same idiom as
+          // Alert and Badge, instead of sonner's unthemed defaults.
+          "--success-bg": "var(--popover)",
+          "--success-text": "var(--success)",
+          "--success-border": "var(--success)",
+          "--info-bg": "var(--popover)",
+          "--info-text": "var(--accent-foreground)",
+          "--info-border": "var(--accent)",
+          "--warning-bg": "var(--popover)",
+          "--warning-text": "var(--warning)",
+          "--warning-border": "var(--warning)",
+          "--error-bg": "var(--popover)",
+          "--error-text": "var(--destructive)",
+          "--error-border": "var(--destructive)",
         } as React.CSSProperties
       }
       toastOptions={{

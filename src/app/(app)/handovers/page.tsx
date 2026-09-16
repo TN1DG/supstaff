@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { PenLine, CheckCircle2, AlertTriangle } from "lucide-react";
 import { getDb } from "@/db";
 import { handovers } from "@/db/schema";
 import { requireStaff } from "@/lib/rbac";
 import { hasRole } from "@/lib/roles";
 import { shiftLabel } from "@/lib/handover-payload";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -112,7 +113,8 @@ export default async function HandoversPage({
       {lastSubmitted && lastSubmitted.entries.length > 0 ? (
         <Card className="mb-6 border-warning/40 bg-warning/5">
           <CardHeader>
-            <CardTitle className="text-base">
+            <CardTitle className="flex items-center gap-1.5 text-base text-warning">
+              <AlertTriangle className="size-4" aria-hidden />
               Outstanding from the last handover
             </CardTitle>
           </CardHeader>
@@ -218,15 +220,21 @@ export default async function HandoversPage({
                     {h.startedBy.name}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={h.status === "draft" ? "outline" : "secondary"}>
-                      {h.status === "draft" ? "Draft" : "Submitted"}
-                    </Badge>
+                    {h.status === "draft" ? (
+                      <StatusBadge tone="info" icon={PenLine}>
+                        Draft
+                      </StatusBadge>
+                    ) : (
+                      <StatusBadge tone="success" icon={CheckCircle2}>
+                        Submitted
+                      </StatusBadge>
+                    )}
                   </TableCell>
                   <TableCell>
                     {h.incidents > 0 ? (
-                      <Badge className="border-destructive/40 bg-destructive/10 text-destructive">
+                      <StatusBadge tone="danger" icon={AlertTriangle}>
                         {h.incidents}
-                      </Badge>
+                      </StatusBadge>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

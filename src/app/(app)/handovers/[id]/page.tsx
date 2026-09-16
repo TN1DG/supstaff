@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, eq } from "drizzle-orm";
+import { PenLine, CheckCircle2, AlertTriangle } from "lucide-react";
 import { getDb } from "@/db";
 import { handovers, outbox } from "@/db/schema";
 import { requireStaff } from "@/lib/rbac";
@@ -11,7 +12,7 @@ import {
   shiftLabel,
 } from "@/lib/handover-payload";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -92,9 +93,15 @@ export default async function HandoverPage({
       </PageHeader>
 
       <div className="mb-6 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-        <Badge variant={isDraft ? "outline" : "secondary"}>
-          {isDraft ? "Draft" : "Submitted"}
-        </Badge>
+        {isDraft ? (
+          <StatusBadge tone="info" icon={PenLine}>
+            Draft
+          </StatusBadge>
+        ) : (
+          <StatusBadge tone="success" icon={CheckCircle2}>
+            Submitted
+          </StatusBadge>
+        )}
         <span>Started by {handover.startedBy.name}</span>
         {handover.submittedAt ? (
           <span>
@@ -111,7 +118,8 @@ export default async function HandoverPage({
       ) : null}
 
       {isDraft ? (
-        <Alert className="mb-6">
+        <Alert variant="info" className="mb-6">
+          <PenLine />
           <AlertTitle>This handover is still a draft</AlertTitle>
           <AlertDescription>
             It won&rsquo;t show up for the next shift or go to Salesforce until
@@ -154,9 +162,9 @@ export default async function HandoverPage({
                       ) : null}
                     </CardTitle>
                     {e.incidentFlag ? (
-                      <Badge className="border-destructive/40 bg-destructive/10 text-destructive">
+                      <StatusBadge tone="danger" icon={AlertTriangle}>
                         Incident logged
-                      </Badge>
+                      </StatusBadge>
                     ) : null}
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
@@ -197,7 +205,7 @@ export default async function HandoverPage({
                   payload.addenda.map((a, i) => (
                     <div
                       key={i}
-                      className="border-l-2 border-warning/60 pl-3 text-sm"
+                      className="border-l-2 border-accent pl-3 text-sm"
                     >
                       <p className="text-xs text-muted-foreground">
                         {a.author} · {dtf.format(new Date(a.at))}

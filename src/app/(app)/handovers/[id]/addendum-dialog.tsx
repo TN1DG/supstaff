@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { classifyFormError } from "@/lib/form-error-tone";
 import { addAddendum } from "../actions";
 
 export function AddendumDialog({ handoverId }: { handoverId: string }) {
@@ -69,7 +71,17 @@ export function AddendumDialog({ handoverId }: { handoverId: string }) {
                 required
               />
             </div>
-            {error ? <p className="text-xs text-destructive">{error}</p> : null}
+            {error
+              ? (() => {
+                  const { tone, icon: Icon } = classifyFormError(error);
+                  return (
+                    <Alert variant={tone === "info" ? "info" : "destructive"} className="py-2">
+                      <Icon />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  );
+                })()
+              : null}
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>

@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
+import { AlertTriangle, Info } from "lucide-react";
 import { requireStaff } from "@/lib/rbac";
+import { TONE, type StatusTone } from "@/lib/status-tone";
+import { riskFlagDescription } from "@/lib/residents";
 import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
+import { TooltipStatusBadge } from "@/components/tooltip-status-badge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -9,6 +14,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "Design" };
+
+const TONE_ROWS: { tone: StatusTone; meaning: string; example: string }[] = [
+  { tone: "success", meaning: "Good / done / nothing wrong", example: "Given, Complete, Submitted" },
+  { tone: "info", meaning: "Informational / in progress / a classification", example: "In progress, Draft, CD, Not available" },
+  { tone: "warning", meaning: "Needs attention / review", example: "Due now, Refused, Falls risk" },
+  { tone: "danger", meaning: "Missed / failed / locked out / a real problem", example: "Missed, Incident logged, Locked out" },
+  { tone: "neutral", meaning: "Not applicable yet / inactive / historical", example: "Not due yet, Discharged, N/A" },
+];
 
 const SWATCHES = [
   ["Background", "bg-background border"],
@@ -74,12 +87,51 @@ export default async function DesignPage() {
           <Badge>Default</Badge>
           <Badge variant="secondary">Secondary</Badge>
           <Badge variant="outline">Outline</Badge>
-          <Badge
-            variant="outline"
-            className="border-warning/50 bg-warning/10 text-warning-foreground"
-          >
+          <TooltipStatusBadge tone="warning" tooltip={riskFlagDescription("Falls risk")}>
             Falls risk
-          </Badge>
+          </TooltipStatusBadge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Hover or focus a risk flag to see what it means — every free-text
+          flag staff type gets a plain-language hint, not just the label.
+        </p>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-lg font-medium">Status tones</h2>
+        <p className="max-w-prose text-sm text-muted-foreground">
+          Every colored badge or alert for a situation (a dose outcome, a
+          round status, a resident status, …) uses one of these five tones —
+          color always paired with an icon and a text label, never color
+          alone.
+        </p>
+        <div className="space-y-3">
+          {TONE_ROWS.map(({ tone, meaning, example }) => {
+            const { icon: ToneIcon } = TONE[tone];
+            return (
+              <div
+                key={tone}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border p-3"
+              >
+                <StatusBadge tone={tone} className="w-28 justify-center">
+                  {tone}
+                </StatusBadge>
+                <ToneIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <p className="text-sm">{meaning}</p>
+                <p className="text-xs text-muted-foreground sm:ml-auto">{example}</p>
+              </div>
+            );
+          })}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Alert variant="warning">
+            <AlertTriangle />
+            <AlertDescription>An example warning alert.</AlertDescription>
+          </Alert>
+          <Alert variant="info">
+            <Info />
+            <AlertDescription>An example info alert.</AlertDescription>
+          </Alert>
         </div>
       </section>
 

@@ -15,6 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { classifyFormError } from "@/lib/form-error-tone";
 import { submitHandover } from "../actions";
 
 export function SubmitHandoverDialog({ handoverId }: { handoverId: string }) {
@@ -62,9 +64,17 @@ export function SubmitHandoverDialog({ handoverId }: { handoverId: string }) {
               autoFocus
               required
             />
-            {error ? (
-              <p className="text-xs text-destructive">{error}</p>
-            ) : null}
+            {error
+              ? (() => {
+                  const { tone, icon: Icon } = classifyFormError(error);
+                  return (
+                    <Alert variant={tone === "info" ? "info" : "destructive"} className="py-2">
+                      <Icon />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  );
+                })()
+              : null}
           </div>
           <DialogFooter>
             <Button

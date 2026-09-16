@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,6 +47,7 @@ function ConflictNotice({
 }) {
   return (
     <Alert variant="destructive">
+      <AlertTriangle />
       <AlertTitle>Someone else saved this first</AlertTitle>
       <AlertDescription className="space-y-2">
         <p>

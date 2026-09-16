@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { saveRoomCheck, type SaveRoomCheckState } from "../actions";
 
 type SituationType = { id: string; label: string };
@@ -48,19 +48,15 @@ export function WelfareRoomCard({
               </span>
             ) : null}
           </p>
-          {!flagged ? (
-            <Badge className="border-success/40 bg-success/10 text-success">
-              No issues
-            </Badge>
-          ) : null}
+          {!flagged ? <StatusBadge tone="success">No issues</StatusBadge> : null}
         </div>
         {flagged ? (
           <div className="mt-2 space-y-1.5">
             <div className="flex flex-wrap gap-1.5">
               {initialSituationLabels.map((label) => (
-                <Badge key={label} className="border-warning/40 bg-warning/15 text-warning">
+                <StatusBadge key={label} tone="warning">
                   {label}
-                </Badge>
+                </StatusBadge>
               ))}
             </div>
             {initialNote ? <p className="text-sm">{initialNote}</p> : null}

@@ -1,4 +1,5 @@
-import type { NightCheckRoundStatusValue } from "@/db/schema";
+import type { NightCheckItemStatusValue, NightCheckRoundStatusValue } from "@/db/schema";
+import type { StatusTone } from "@/lib/status-tone";
 
 /**
  * Fixed round slots, 23:00 → 07:00 every two hours. Not manager-configurable
@@ -78,6 +79,32 @@ export function displayRoundStatus(
   if (now < roundWindowEnd(checkDate, roundTime)) return "due";
   return "missed";
 }
+
+/**
+ * The single source of truth for how a round status renders — color tone +
+ * label. Replaces the three independent encodings that used to live in
+ * night-checks/page.tsx (dot-grid), night-checks/[id]/page.tsx (header
+ * badge), and round-checklist.tsx. `in_progress` is `info` (teal), not
+ * `warning` — it needs to look distinctly different from "due" (hasn't
+ * started) rather than just a lighter shade of the same amber.
+ */
+export const ROUND_STATUS_META: Record<DisplayRoundStatus, { tone: StatusTone; label: string }> = {
+  not_due: { tone: "neutral", label: "Not due yet" },
+  due: { tone: "warning", label: "Due now" },
+  in_progress: { tone: "info", label: "In progress" },
+  complete: { tone: "success", label: "Complete" },
+  missed: { tone: "danger", label: "Missed" },
+};
+
+/** The single source of truth for how a checklist item status renders. */
+export const CHECKLIST_ITEM_STATUS_META: Record<
+  NightCheckItemStatusValue,
+  { tone: StatusTone; label: string }
+> = {
+  ok: { tone: "success", label: "OK" },
+  attention: { tone: "warning", label: "Needs attention" },
+  na: { tone: "neutral", label: "N/A" },
+};
 
 /**
  * Fixed floor/room layout for the resident-welfare drill-down — one building,

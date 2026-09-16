@@ -4,9 +4,11 @@ import { asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { residents } from "@/db/schema";
 import { requireStaff, hasRole } from "@/lib/rbac";
+import { RESIDENT_STATUS_META, riskFlagDescription } from "@/lib/residents";
 import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
+import { TooltipStatusBadge } from "@/components/tooltip-status-badge";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -17,12 +19,6 @@ import {
 } from "@/components/ui/table";
 
 export const metadata: Metadata = { title: "Residents" };
-
-const STATUS_LABEL: Record<string, string> = {
-  active: "In the house",
-  on_leave: "On leave",
-  discharged: "Discharged",
-};
 
 export default async function ResidentsPage() {
   const staff = await requireStaff();
@@ -88,7 +84,9 @@ export default async function ResidentsPage() {
                     {r.room ?? "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {r.keyWorker?.name ?? "—"}
+                    {r.keyWorker?.name ?? (
+                      <span className="text-accent-foreground">Not assigned</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
@@ -96,23 +94,17 @@ export default async function ResidentsPage() {
                         <span className="text-muted-foreground">—</span>
                       ) : (
                         r.riskFlags.map((f) => (
-                          <Badge
-                            key={f}
-                            variant="outline"
-                            className="border-warning/50 bg-warning/10 text-warning-foreground"
-                          >
+                          <TooltipStatusBadge key={f} tone="warning" tooltip={riskFlagDescription(f)}>
                             {f}
-                          </Badge>
+                          </TooltipStatusBadge>
                         ))
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant={r.status === "active" ? "secondary" : "outline"}
-                    >
-                      {STATUS_LABEL[r.status]}
-                    </Badge>
+                    <StatusBadge tone={RESIDENT_STATUS_META[r.status].tone}>
+                      {RESIDENT_STATUS_META[r.status].label}
+                    </StatusBadge>
                   </TableCell>
                 </TableRow>
               ))}

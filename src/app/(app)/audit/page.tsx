@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { Lock } from "lucide-react";
 import { getDb } from "@/db";
 import { auditLog } from "@/db/schema";
 import { requireRole } from "@/lib/rbac";
+import { categorizeAuditAction } from "@/lib/audit-tone";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -87,9 +89,18 @@ export default async function AuditPage({
                   </TableCell>
                   <TableCell>{r.actorName ?? "System"}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="font-mono text-xs">
-                      {r.action}
-                    </Badge>
+                    {(() => {
+                      const tone = categorizeAuditAction(r.action);
+                      return (
+                        <StatusBadge
+                          tone={tone}
+                          icon={tone === "danger" ? Lock : undefined}
+                          className="font-mono text-xs"
+                        >
+                          {r.action}
+                        </StatusBadge>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {r.entityType}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { AlertTriangle, CheckCircle2, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -16,9 +17,9 @@ export type ChecklistItem = {
 };
 
 const STATUS_OPTIONS = [
-  { value: "ok", label: "OK" },
-  { value: "attention", label: "Needs attention" },
-  { value: "na", label: "N/A" },
+  { value: "ok", label: "OK", icon: CheckCircle2 },
+  { value: "attention", label: "Needs attention", icon: AlertTriangle },
+  { value: "na", label: "N/A", icon: Circle },
 ] as const;
 
 function ItemRow({ item }: { item: ChecklistItem }) {
@@ -39,13 +40,13 @@ function ItemRow({ item }: { item: ChecklistItem }) {
           <label
             key={opt.value}
             className={cn(
-              "cursor-pointer rounded-full border px-3 py-1.5 text-sm transition-colors",
+              "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors",
               status === opt.value
                 ? opt.value === "attention"
                   ? "border-warning bg-warning/15 text-warning"
                   : opt.value === "ok"
                     ? "border-success bg-success/15 text-success"
-                    : "border-foreground/30 bg-muted"
+                    : "border-border bg-muted text-muted-foreground"
                 : "border-border hover:bg-muted",
             )}
           >
@@ -58,6 +59,7 @@ function ItemRow({ item }: { item: ChecklistItem }) {
               className="sr-only"
               required
             />
+            <opt.icon className="size-3.5" aria-hidden />
             {opt.label}
           </label>
         ))}

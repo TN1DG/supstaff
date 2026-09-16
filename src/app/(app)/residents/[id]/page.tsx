@@ -5,19 +5,16 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { residents } from "@/db/schema";
 import { requireStaff, hasRole } from "@/lib/rbac";
+import { RESIDENT_STATUS_META, riskFlagDescription } from "@/lib/residents";
 import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
+import { TooltipStatusBadge } from "@/components/tooltip-status-badge";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArchiveResidentButton } from "./archive-button";
+import { MedicationsCard } from "./medications-card";
 
 export const metadata: Metadata = { title: "Resident" };
-
-const STATUS_LABEL: Record<string, string> = {
-  active: "In the house",
-  on_leave: "On leave",
-  discharged: "Discharged",
-};
 
 export default async function ResidentPage({
   params,
@@ -61,9 +58,15 @@ export default async function ResidentPage({
             </Row>
             <Row label="Date of birth">{resident.dateOfBirth ?? "—"}</Row>
             <Row label="Admitted">{resident.admissionDate ?? "—"}</Row>
-            <Row label="Key worker">{resident.keyWorker?.name ?? "Not assigned"}</Row>
+            <Row label="Key worker">
+              {resident.keyWorker?.name ?? (
+                <span className="text-accent-foreground">Not assigned</span>
+              )}
+            </Row>
             <Row label="Status">
-              <Badge variant="secondary">{STATUS_LABEL[resident.status]}</Badge>
+              <StatusBadge tone={RESIDENT_STATUS_META[resident.status].tone}>
+                {RESIDENT_STATUS_META[resident.status].label}
+              </StatusBadge>
             </Row>
           </CardContent>
         </Card>
@@ -78,13 +81,9 @@ export default async function ResidentPage({
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {resident.riskFlags.map((f) => (
-                  <Badge
-                    key={f}
-                    variant="outline"
-                    className="border-warning/50 bg-warning/10 text-warning-foreground"
-                  >
+                  <TooltipStatusBadge key={f} tone="warning" tooltip={riskFlagDescription(f)}>
                     {f}
-                  </Badge>
+                  </TooltipStatusBadge>
                 ))}
               </div>
             )}
@@ -101,6 +100,15 @@ export default async function ResidentPage({
             </p>
           </CardContent>
         </Card>
+
+        <div className="lg:col-span-3">
+          <MedicationsCard
+            residentId={resident.id}
+            siteId={staff.siteId}
+            canEdit={canEdit}
+            isManager={isManager}
+          />
+        </div>
       </div>
     </>
   );

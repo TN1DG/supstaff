@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +18,7 @@ export function LoginForm() {
     <form action={action} className="space-y-5">
       {state.error ? (
         <Alert variant="destructive">
+          <XCircle />
           <AlertDescription>{state.error}</AlertDescription>
         </Alert>
       ) : null}
