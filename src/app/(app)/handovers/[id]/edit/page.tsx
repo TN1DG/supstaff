@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import { handovers, residents } from "@/db/schema";
 import { requireStaff } from "@/lib/rbac";
 import { shiftLabel } from "@/lib/handover-payload";
+import { compareByRoom } from "@/lib/residents";
 import { PageHeader } from "@/components/page-header";
 import { HandoverForm, type ResidentEntry } from "../../handover-form";
 
@@ -33,26 +34,27 @@ export default async function EditHandoverPage({
     handover.entries.map((e) => [e.residentId, e]),
   );
 
-  const roster = await db.query.residents.findMany({
-    where: and(
-      eq(residents.siteId, staff.siteId),
-      or(
-        eq(residents.status, "active"),
-        handover.entries.length
-          ? or(...handover.entries.map((e) => eq(residents.id, e.residentId)))
-          : undefined,
+  const roster = (
+    await db.query.residents.findMany({
+      where: and(
+        eq(residents.siteId, staff.siteId),
+        or(
+          eq(residents.status, "active"),
+          handover.entries.length
+            ? or(...handover.entries.map((e) => eq(residents.id, e.residentId)))
+            : undefined,
+        ),
       ),
-    ),
-    orderBy: [asc(residents.lastName), asc(residents.firstName)],
-    columns: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      preferredName: true,
-      room: true,
-      keyWorkerId: true,
-    },
-  });
+      columns: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        preferredName: true,
+        room: true,
+        keyWorkerId: true,
+      },
+    })
+  ).sort(compareByRoom);
 
   const entries: ResidentEntry[] = roster.map((r) => {
     const e = entryByResident.get(r.id);

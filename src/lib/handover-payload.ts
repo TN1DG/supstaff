@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { handovers } from "@/db/schema";
+import { compareByRoom } from "@/lib/residents";
 
 export type HandoverPayload = {
   id: string;
@@ -138,11 +139,7 @@ export async function buildHandoverPayload(
   );
 
   const entries = [...row.entries]
-    .sort((a, b) => {
-      const an = `${a.resident.lastName} ${a.resident.firstName}`;
-      const bn = `${b.resident.lastName} ${b.resident.firstName}`;
-      return an.localeCompare(bn);
-    })
+    .sort((a, b) => compareByRoom(a.resident, b.resident))
     .map((e) => ({
       resident: e.resident.preferredName
         ? `${e.resident.preferredName} ${e.resident.lastName}`
