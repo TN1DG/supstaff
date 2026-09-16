@@ -77,6 +77,14 @@ export const nightCheckItemKind = pgEnum("night_check_item_kind", [
   "resident_welfare",
 ]);
 
+export const medicationOutcome = pgEnum("medication_outcome", [
+  "given",
+  "refused",
+  "omitted",
+  "not_available",
+  "self_admin",
+]);
+
 /* ------------------------------------------------------------------ */
 /* Core                                                                */
 /* ------------------------------------------------------------------ */
@@ -397,6 +405,140 @@ export const nightCheckRoomSituations = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Medication (Phase 3)                                                */
+/* ------------------------------------------------------------------ */
+
+/** A resident's prescribed medication, transcribed manually from the paper MAR. */
+export const medications = pgTable("medications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  siteId: uuid("site_id")
+    .notNull()
+    .references(() => sites.id, { onDelete: "restrict" }),
+  residentId: uuid("resident_id")
+    .notNull()
+    .references(() => residents.id, { onDelete: "restrict" }),
+  name: text("name").notNull(),
+  form: text("form"),
+  strength: text("strength"),
+  route: text("route"),
+  directions: text("directions"),
+  isControlledDrug: boolean("is_controlled_drug").notNull().default(false),
+  isPrn: boolean("is_prn").notNull().default(false),
+  /** PRN only — soft safety-check thresholds, see src/lib/medication.ts. */
+  prnMaxDosePerDay: integer("prn_max_dose_per_day"),
+  prnMinIntervalMinutes: integer("prn_min_interval_minutes"),
+  prnReason: text("prn_reason"),
+  prescriber: text("prescriber"),
+  active: boolean("active").notNull().default(true),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Non-PRN dosing schedule — one row per round a medication is due in.
+ * `roundSlot` is plain text against MEDICATION_ROUNDS (src/lib/medication.ts),
+ * not a pg enum — same posture as night_check_rounds.round_time, so a round
+ * can be added later without a migration. PRN medications have no rows here.
+ */
+export const medicationSchedules = pgTable(
+  "medication_schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    medicationId: uuid("medication_id")
+      .notNull()
+      .references(() => medications.id, { onDelete: "cascade" }),
+    roundSlot: text("round_slot").notNull(),
+    /** Day codes, e.g. ["mon","tue",...]; default every day. */
+    daysOfWeek: text("days_of_week")
+      .array()
+      .notNull()
+      .default(sql`ARRAY['mon','tue','wed','thu','fri','sat','sun']::text[]`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("medication_schedule_round_unique").on(t.medicationId, t.roundSlot)],
+);
+
+/** Manager-configurable reasons for a non-"given" outcome — structural copy of nightCheckSituationTypes. */
+export const medicationReasonCodes = pgTable("medication_reason_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  siteId: uuid("site_id")
+    .notNull()
+    .references(() => sites.id, { onDelete: "restrict" }),
+  label: text("label").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One row per dose recording — the legally-attributable act itself,
+ * PIN-signed at the moment of insert (see src/app/(app)/medication/actions.ts).
+ * Never updated except for the PRN effect-note follow-up fields.
+ * `scheduledRound` is null for PRN doses; `scheduledDate` is the
+ * operational day this dose belongs to (same role as night_check_rounds.check_date).
+ */
+export const medicationAdministrations = pgTable(
+  "medication_administrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    medicationId: uuid("medication_id")
+      .notNull()
+      .references(() => medications.id, { onDelete: "restrict" }),
+    residentId: uuid("resident_id")
+      .notNull()
+      .references(() => residents.id, { onDelete: "restrict" }),
+    scheduledDate: date("scheduled_date").notNull(),
+    scheduledRound: text("scheduled_round"), // null = PRN
+    administeredAt: timestamp("administered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "restrict" }),
+    outcome: medicationOutcome("outcome").notNull(),
+    reasonCodeId: uuid("reason_code_id").references(() => medicationReasonCodes.id, {
+      onDelete: "set null",
+    }),
+    /** Controlled-drug second signature — required only when outcome = "given". */
+    witnessStaffId: uuid("witness_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    notes: text("notes"),
+    /** PRN only — "why *this* time", distinct from medications.prnReason (the standing indication). */
+    prnReasonNow: text("prn_reason_now"),
+    /** PRN only — true if a max-dose/min-interval warning was shown and staff proceeded anyway. */
+    prnSafetyWarningAcknowledged: boolean("prn_safety_warning_acknowledged")
+      .notNull()
+      .default(false),
+    /** Follow-up edit, fillable any time after a PRN "given" dose — see editPrnEffectNote. */
+    prnEffectNote: text("prn_effect_note"),
+    prnEffectNoteAt: timestamp("prn_effect_note_at", { withTimezone: true }),
+    prnEffectNoteByStaffId: uuid("prn_effect_note_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Plain composite unique — Postgres treats multiple NULLs (PRN rows,
+    // scheduledRound = null) as distinct, so this already permits unlimited
+    // PRN doses/day while blocking a duplicate scheduled dose.
+    unique("medication_administration_slot_unique").on(
+      t.medicationId,
+      t.scheduledDate,
+      t.scheduledRound,
+    ),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Rate limiting — brute-force lockout for auth-sensitive actions      */
 /* ------------------------------------------------------------------ */
 
@@ -430,6 +572,7 @@ export const residentsRelations = relations(residents, ({ one, many }) => ({
     references: [staff.id],
   }),
   handoverEntries: many(handoverResidentEntries),
+  medications: many(medications),
 }));
 
 export const handoversRelations = relations(handovers, ({ one, many }) => ({
@@ -589,6 +732,68 @@ export const nightCheckRoomSituationsRelations = relations(
   }),
 );
 
+export const medicationsRelations = relations(medications, ({ one, many }) => ({
+  site: one(sites, { fields: [medications.siteId], references: [sites.id] }),
+  resident: one(residents, {
+    fields: [medications.residentId],
+    references: [residents.id],
+  }),
+  schedules: many(medicationSchedules),
+  administrations: many(medicationAdministrations),
+}));
+
+export const medicationSchedulesRelations = relations(medicationSchedules, ({ one }) => ({
+  medication: one(medications, {
+    fields: [medicationSchedules.medicationId],
+    references: [medications.id],
+  }),
+}));
+
+export const medicationReasonCodesRelations = relations(
+  medicationReasonCodes,
+  ({ one, many }) => ({
+    site: one(sites, { fields: [medicationReasonCodes.siteId], references: [sites.id] }),
+    administrations: many(medicationAdministrations),
+  }),
+);
+
+export const medicationAdministrationsRelations = relations(
+  medicationAdministrations,
+  ({ one }) => ({
+    site: one(sites, {
+      fields: [medicationAdministrations.siteId],
+      references: [sites.id],
+    }),
+    medication: one(medications, {
+      fields: [medicationAdministrations.medicationId],
+      references: [medications.id],
+    }),
+    resident: one(residents, {
+      fields: [medicationAdministrations.residentId],
+      references: [residents.id],
+    }),
+    staff: one(staff, {
+      fields: [medicationAdministrations.staffId],
+      references: [staff.id],
+      relationName: "medicationAdministrationStaff",
+    }),
+    witness: one(staff, {
+      fields: [medicationAdministrations.witnessStaffId],
+      references: [staff.id],
+      relationName: "medicationAdministrationWitness",
+    }),
+    prnEffectNoteBy: one(staff, {
+      fields: [medicationAdministrations.prnEffectNoteByStaffId],
+      references: [staff.id],
+      relationName: "medicationAdministrationPrnEffectNoteBy",
+    }),
+    reasonCode: one(medicationReasonCodes, {
+      fields: [medicationAdministrations.reasonCodeId],
+      references: [medicationReasonCodes.id],
+    }),
+  }),
+);
+
 /* ------------------------------------------------------------------ */
 /* Inferred types                                                      */
 /* ------------------------------------------------------------------ */
@@ -608,6 +813,11 @@ export type NightCheckItemResult = typeof nightCheckItemResults.$inferSelect;
 export type NightCheckSituationType = typeof nightCheckSituationTypes.$inferSelect;
 export type NightCheckRoomCheck = typeof nightCheckRoomChecks.$inferSelect;
 export type NightCheckRoomSituation = typeof nightCheckRoomSituations.$inferSelect;
+export type Medication = typeof medications.$inferSelect;
+export type NewMedication = typeof medications.$inferInsert;
+export type MedicationSchedule = typeof medicationSchedules.$inferSelect;
+export type MedicationReasonCode = typeof medicationReasonCodes.$inferSelect;
+export type MedicationAdministration = typeof medicationAdministrations.$inferSelect;
 
 export type StaffRole = (typeof staffRole.enumValues)[number];
 export type ShiftType = (typeof shiftType.enumValues)[number];
@@ -615,3 +825,5 @@ export type HandoverStatusValue = (typeof handoverStatus.enumValues)[number];
 export type NightCheckItemStatusValue = (typeof nightCheckItemStatus.enumValues)[number];
 export type NightCheckRoundStatusValue = (typeof nightCheckRoundStatus.enumValues)[number];
 export type NightCheckItemKindValue = (typeof nightCheckItemKind.enumValues)[number];
+export type MedicationOutcomeValue = (typeof medicationOutcome.enumValues)[number];
+export type ResidentStatusValue = (typeof residentStatus.enumValues)[number];

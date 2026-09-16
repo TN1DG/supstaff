@@ -15,7 +15,9 @@
     "seed": "dotenv -e .env.local -- tsx scripts/seed.ts",
     "seed:residents": "dotenv -e .env.local -- tsx scripts/seed-residents.ts",
     "seed:handovers": "dotenv -e .env.local -- tsx scripts/seed-handovers.ts",
-    "seed:night-checks": "dotenv -e .env.local -- tsx scripts/seed-night-checks.ts"
+    "seed:night-checks": "dotenv -e .env.local -- tsx scripts/seed-night-checks.ts",
+    "seed:medication": "dotenv -e .env.local -- tsx scripts/seed-medication.ts",
+    "seed:medication-scenarios": "dotenv -e .env.local -- tsx scripts/seed-medication-scenarios.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

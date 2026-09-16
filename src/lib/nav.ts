@@ -20,7 +20,7 @@ export const NAV: NavSection[] = [
     items: [
       { title: "Today", href: "/", icon: "LayoutDashboard" },
       { title: "Handovers", href: "/handovers", icon: "NotebookPen" },
-      { title: "Medication", href: "/medication", icon: "Pill", soon: true },
+      { title: "Medication", href: "/medication", icon: "Pill" },
       {
         title: "Night checks",
         href: "/night-checks",
@@ -47,6 +47,12 @@ export const NAV: NavSection[] = [
         icon: "ChartNoAxesColumn",
         minRole: "manager",
         soon: true,
+      },
+      {
+        title: "Medication reports",
+        href: "/medication/reports",
+        icon: "ClipboardList",
+        minRole: "manager",
       },
       {
         title: "Staff",

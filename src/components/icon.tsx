@@ -8,6 +8,7 @@ import {
   ChartNoAxesColumn,
   IdCard,
   ScrollText,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ const ICONS: Record<string, LucideIcon> = {
   ChartNoAxesColumn,
   IdCard,
   ScrollText,
+  ClipboardList,
 };
 
 export function Icon({
