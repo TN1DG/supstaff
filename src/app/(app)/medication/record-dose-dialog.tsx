@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
-import { classifyFormError } from "@/lib/form-error-tone";
+import { FormError } from "@/components/form-error";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PinField } from "@/components/pin-field";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -191,43 +191,16 @@ export function RecordDoseDialog({
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="witnessPin">Witness PIN</Label>
-                  <Input
-                    id="witnessPin"
-                    name="witnessPin"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    maxLength={6}
-                    required
-                  />
+                  <PinField name="witnessPin" label="Witness PIN" />
                 </div>
               </div>
             ) : null}
 
             <div className="space-y-1.5">
-              <Label htmlFor="pin">Your signing PIN</Label>
-              <Input
-                id="pin"
-                name="pin"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={6}
-                autoFocus
-                required
-              />
+              <PinField label="Your signing PIN" autoFocus />
             </div>
 
-            {error
-              ? (() => {
-                  const { tone, icon: Icon } = classifyFormError(error);
-                  return (
-                    <Alert variant={tone === "info" ? "info" : "destructive"}>
-                      <Icon />
-                      <AlertDescription>{error}</AlertDescription>
-                    </Alert>
-                  );
-                })()
-              : null}
+            <FormError message={error} className={undefined} />
           </div>
 
           <DialogFooter>
