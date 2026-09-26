@@ -7,9 +7,15 @@ import { requireRole } from "@/lib/rbac";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { AddItemDialog, EditItemDialog } from "./template-item-dialogs";
-import { ItemRowActions } from "./item-row-actions";
+import { OrderedRowActions } from "@/components/ordered-row-actions";
+import {
+  moveSituationType,
+  moveTemplateItem,
+  setSituationTypeActive,
+  setTemplateItemActive,
+} from "../actions";
 import { AddSituationTypeDialog, EditSituationTypeDialog } from "./situation-type-dialogs";
-import { SituationRowActions } from "./situation-row-actions";
+
 
 export const metadata: Metadata = { title: "Night check checklist" };
 
@@ -58,7 +64,9 @@ export default async function NightCheckTemplatePage() {
                   <p className="text-sm text-muted-foreground">{item.description}</p>
                 </div>
                 <div className="flex items-center gap-1">
-                  <ItemRowActions
+                  <OrderedRowActions
+                    onMove={moveTemplateItem}
+                    onSetActive={setTemplateItemActive}
                     id={item.id}
                     active
                     isFirst={idx === 0}
@@ -85,7 +93,12 @@ export default async function NightCheckTemplatePage() {
                   <p className="font-medium text-muted-foreground">{item.area}</p>
                   <p className="text-sm text-muted-foreground">{item.description}</p>
                 </div>
-                <ItemRowActions id={item.id} active={false} />
+                <OrderedRowActions
+                  id={item.id}
+                  active={false}
+                  onMove={moveTemplateItem}
+                  onSetActive={setTemplateItemActive}
+                />
               </div>
             ))}
           </CardContent>
@@ -113,7 +126,9 @@ export default async function NightCheckTemplatePage() {
               >
                 <p className="font-medium">{s.label}</p>
                 <div className="flex items-center gap-1">
-                  <SituationRowActions
+                  <OrderedRowActions
+                    onMove={moveSituationType}
+                    onSetActive={setSituationTypeActive}
                     id={s.id}
                     active
                     isFirst={idx === 0}
@@ -134,7 +149,12 @@ export default async function NightCheckTemplatePage() {
             {archivedSituations.map((s) => (
               <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <p className="font-medium text-muted-foreground">{s.label}</p>
-                <SituationRowActions id={s.id} active={false} />
+                <OrderedRowActions
+                  id={s.id}
+                  active={false}
+                  onMove={moveSituationType}
+                  onSetActive={setSituationTypeActive}
+                />
               </div>
             ))}
           </CardContent>

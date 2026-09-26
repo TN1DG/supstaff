@@ -42,13 +42,6 @@ export async function requireRole(minRole: StaffRole): Promise<SessionStaff> {
   return staff;
 }
 
-/** Require the technical admin flag (integration / setup screens). */
-export async function requireAdmin(): Promise<SessionStaff> {
-  const staff = await requireStaff();
-  if (!staff.isAdmin && staff.role !== "manager") redirect("/denied");
-  return staff;
-}
-
 /** For server actions — throws instead of redirecting. */
 export async function assertStaff(): Promise<SessionStaff> {
   const session = await auth();

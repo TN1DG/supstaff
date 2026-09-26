@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   date,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -115,7 +116,9 @@ export const staff = pgTable("staff", {
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("staff_site_active_idx").on(t.siteId, t.active),
+]);
 
 export const residents = pgTable("residents", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -141,7 +144,9 @@ export const residents = pgTable("residents", {
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("residents_site_status_idx").on(t.siteId, t.status),
+]);
 
 /* ------------------------------------------------------------------ */
 /* Audit — append only                                                 */
@@ -162,7 +167,9 @@ export const auditLog = pgTable("audit_log", {
   ip: text("ip"),
   userAgent: text("user_agent"),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("audit_log_site_at_idx").on(t.siteId, t.at.desc()),
+]);
 
 /* ------------------------------------------------------------------ */
 /* Outbox — transactional outbox for Salesforce / Saw-it / email       */
@@ -182,7 +189,10 @@ export const outbox = pgTable("outbox", {
   lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   sentAt: timestamp("sent_at", { withTimezone: true }),
-});
+}, (t) => [
+  index("outbox_status_created_idx").on(t.status, t.createdAt),
+  index("outbox_entity_idx").on(t.entityType, t.entityId, t.target),
+]);
 
 /* ------------------------------------------------------------------ */
 /* Handovers (Phase 1)                                                 */
@@ -226,6 +236,11 @@ export const handovers = pgTable(
   // One handover per shift — the whole team contributes to the same record.
   (t) => [
     unique("handovers_site_date_shift").on(t.siteId, t.handoverDate, t.shift),
+    index("handovers_site_status_submitted_idx").on(
+      t.siteId,
+      t.status,
+      t.submittedAt.desc(),
+    ),
   ],
 );
 
@@ -300,7 +315,9 @@ export const nightCheckTemplateItems = pgTable("night_check_template_items", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("night_check_template_site_active_idx").on(t.siteId, t.active),
+]);
 
 export const nightCheckRounds = pgTable(
   "night_check_rounds",
@@ -358,7 +375,9 @@ export const nightCheckSituationTypes = pgTable("night_check_situation_types", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("night_check_situation_site_active_idx").on(t.siteId, t.active),
+]);
 
 /**
  * One row per room per round, snapshotted at check-in (same pattern as
@@ -434,7 +453,10 @@ export const medications = pgTable("medications", {
   endDate: date("end_date"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("medications_site_active_prn_idx").on(t.siteId, t.active, t.isPrn),
+  index("medications_resident_idx").on(t.residentId),
+]);
 
 /**
  * Non-PRN dosing schedule — one row per round a medication is due in.
@@ -472,7 +494,9 @@ export const medicationReasonCodes = pgTable("medication_reason_codes", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("medication_reason_code_site_active_idx").on(t.siteId, t.active),
+]);
 
 /**
  * One row per dose recording — the legally-attributable act itself,
@@ -535,6 +559,10 @@ export const medicationAdministrations = pgTable(
       t.scheduledDate,
       t.scheduledRound,
     ),
+    // The hottest predicate in the app — every round page and report filters
+    // by site + date. The unique above is medicationId-first, so it can't help.
+    index("medication_admin_site_date_idx").on(t.siteId, t.scheduledDate),
+    index("medication_admin_resident_idx").on(t.residentId),
   ],
 );
 

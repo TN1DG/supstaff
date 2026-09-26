@@ -43,6 +43,17 @@ export default async function AuditPage({
     where,
     orderBy: [desc(auditLog.at)],
     limit: PAGE_SIZE,
+    // `before`/`after` are full jsonb row snapshots and nothing here renders
+    // them — selecting them made this the largest transfer in the app.
+    columns: {
+      id: true,
+      at: true,
+      actorName: true,
+      action: true,
+      entityType: true,
+      entityId: true,
+      ip: true,
+    },
   });
 
   return (

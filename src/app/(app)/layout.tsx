@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
@@ -14,19 +15,30 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { UserMenu } from "@/components/user-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 
+/**
+ * This layout wraps every authenticated route, so without `cache()` the site
+ * lookup is a Neon round-trip on each navigation — for a name that changes
+ * almost never. `requireStaff()` reads the JWT, so this is the only DB hit here.
+ */
+const siteName = cache(async (siteId: string) => {
+  const site = await getDb().query.sites.findFirst({
+    where: eq(sites.id, siteId),
+    columns: { name: true },
+  });
+  return site?.name ?? "Supstaff";
+});
+
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const staff = await requireStaff();
   if (staff.mustChangePassword) redirect("/welcome");
 
-  const site = await getDb().query.sites.findFirst({
-    where: eq(sites.id, staff.siteId),
-  });
+  const name = await siteName(staff.siteId);
 
   return (
     <SidebarProvider>
       <AppSidebar
         sections={navForRole(staff.role)}
-        siteName={site?.name ?? "Supstaff"}
+        siteName={name}
         staffName={staff.name}
         role={staff.role}
       />

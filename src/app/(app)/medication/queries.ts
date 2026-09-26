@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { getDb } from "@/db";
 import { medicationAdministrations, medications, type MedicationOutcomeValue } from "@/db/schema";
@@ -25,17 +26,13 @@ export type DueDose = {
   } | null;
 };
 
-/** Every active resident's medications due for a given round today, with today's recorded outcome if any. */
-export async function dueDosesForRound(
-  siteId: string,
-  round: MedicationRound,
-  now: Date,
-): Promise<DueDose[]> {
-  const today = isoDate(now);
-  const day = dayCode(now);
-  const db = getDb();
-
-  const meds = await db.query.medications.findMany({
+/**
+ * Neither of these depends on the round, so `cache()` lets all four rounds on
+ * /medication share one fetch each instead of issuing eight near-identical
+ * queries. The round filtering happens in JS below, as it always did.
+ */
+const scheduledMedications = cache(async (siteId: string) =>
+  getDb().query.medications.findMany({
     where: and(
       eq(medications.siteId, siteId),
       eq(medications.active, true),
@@ -47,7 +44,32 @@ export async function dueDosesForRound(
         columns: { id: true, firstName: true, lastName: true, preferredName: true, status: true },
       },
     },
-  });
+  }),
+);
+
+const administrationsOn = cache(async (siteId: string, dateIso: string) =>
+  getDb().query.medicationAdministrations.findMany({
+    where: and(
+      eq(medicationAdministrations.siteId, siteId),
+      eq(medicationAdministrations.scheduledDate, dateIso),
+    ),
+    with: { staff: { columns: { name: true } } },
+  }),
+);
+
+/** Every active resident's medications due for a given round today, with today's recorded outcome if any. */
+export async function dueDosesForRound(
+  siteId: string,
+  round: MedicationRound,
+  now: Date,
+): Promise<DueDose[]> {
+  const today = isoDate(now);
+  const day = dayCode(now);
+
+  const [meds, allAdministrations] = await Promise.all([
+    scheduledMedications(siteId),
+    administrationsOn(siteId, today),
+  ]);
 
   const dueMeds = meds.filter(
     (m) =>
@@ -55,14 +77,10 @@ export async function dueDosesForRound(
       m.schedules.some((s) => s.roundSlot === round && s.daysOfWeek.includes(day)),
   );
 
-  const administrations = await db.query.medicationAdministrations.findMany({
-    where: and(
-      eq(medicationAdministrations.siteId, siteId),
-      eq(medicationAdministrations.scheduledDate, today),
-      eq(medicationAdministrations.scheduledRound, round),
-    ),
-    with: { staff: { columns: { name: true } } },
-  });
+  // PRN rows carry a null scheduledRound, so this also excludes them.
+  const administrations = allAdministrations.filter(
+    (a) => a.scheduledRound === round,
+  );
   const byMedicationId = new Map(administrations.map((a) => [a.medicationId, a]));
 
   return dueMeds
