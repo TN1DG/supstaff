@@ -19,6 +19,18 @@ export default async function EditStaffPage({
 
   const person = await getDb().query.staff.findFirst({
     where: and(eq(staffTable.id, id), eq(staffTable.siteId, me.siteId)),
+    // Never select passwordHash / pinHash — this row is passed to a client
+    // component and would be serialized into the payload sent to the browser.
+    columns: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      isAdmin: true,
+      phone: true,
+      active: true,
+      engagedUntil: true,
+    },
   });
   if (!person) notFound();
 

@@ -22,13 +22,29 @@ type Action = (
   formData: FormData,
 ) => Promise<ResidentFormState>;
 
+/** Only the fields this form renders — see the note on `StaffFormPerson`. */
+export type ResidentFormResident = Pick<
+  Resident,
+  | "id"
+  | "firstName"
+  | "lastName"
+  | "preferredName"
+  | "room"
+  | "dateOfBirth"
+  | "admissionDate"
+  | "status"
+  | "keyWorkerId"
+  | "riskFlags"
+  | "supportNotes"
+>;
+
 export function ResidentForm({
   action,
   resident,
   keyWorkers,
 }: {
   action: Action;
-  resident?: Resident;
+  resident?: ResidentFormResident;
   keyWorkers: { id: string; name: string }[];
 }) {
   const [state, formAction, pending] = useActionState<

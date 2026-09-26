@@ -25,12 +25,29 @@ type Action = (
   formData: FormData,
 ) => Promise<StaffFormState>;
 
+/**
+ * Only the fields this form renders. Deliberately narrow: `Staff` carries
+ * `passwordHash` and `pinHash`, and props to a client component are serialized
+ * into the RSC payload — i.e. sent to the browser.
+ */
+export type StaffFormPerson = Pick<
+  Staff,
+  | "id"
+  | "name"
+  | "email"
+  | "role"
+  | "isAdmin"
+  | "phone"
+  | "active"
+  | "engagedUntil"
+>;
+
 export function StaffForm({
   action,
   person,
 }: {
   action: Action;
-  person?: Staff;
+  person?: StaffFormPerson;
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState<StaffFormState, FormData>(

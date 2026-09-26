@@ -20,6 +20,19 @@ export default async function EditResidentPage({
   const [resident, keyWorkers] = await Promise.all([
     getDb().query.residents.findFirst({
       where: and(eq(residents.id, id), eq(residents.siteId, staff.siteId)),
+      columns: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        preferredName: true,
+        room: true,
+        dateOfBirth: true,
+        admissionDate: true,
+        status: true,
+        keyWorkerId: true,
+        riskFlags: true,
+        supportNotes: true,
+      },
     }),
     listActiveStaff(staff.siteId),
   ]);
