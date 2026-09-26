@@ -662,6 +662,8 @@ export async function moveReasonCode(id: string, direction: "up" | "down") {
   const a = items[idx];
   const b = items[swapIdx];
 
+  const ctx = await requestContext();
+
   await db.transaction(async (tx) => {
     await tx
       .update(medicationReasonCodes)
@@ -671,6 +673,18 @@ export async function moveReasonCode(id: string, direction: "up" | "down") {
       .update(medicationReasonCodes)
       .set({ sortOrder: a.sortOrder, updatedAt: new Date() })
       .where(eq(medicationReasonCodes.id, b.id));
+    await writeAudit(
+      tx,
+      {
+        ...auditActor(staffMember),
+        action: "medication_reason_code.reorder",
+        entityType: "medication_reason_code",
+        entityId: a.id,
+        before: { sortOrder: a.sortOrder },
+        after: { sortOrder: b.sortOrder, direction },
+      },
+      ctx,
+    );
   });
 
   revalidatePath("/medication/reason-codes");

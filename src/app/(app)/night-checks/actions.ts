@@ -366,14 +366,19 @@ export async function saveRoomCheck(
           eq(residents.status, "active"),
           eq(residents.room, String(roomNumber)),
         ),
-        columns: { id: true, firstName: true, lastName: true },
+        columns: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          preferredName: true,
+        },
       });
       for (const resident of matches) {
         await writeNightCheckHandoverNote(tx, {
           siteId: staffMember.siteId,
           checkDate: round.checkDate,
           residentId: resident.id,
-          residentName: `${resident.firstName} ${resident.lastName}`,
+          residentName: `${resident.preferredName ?? resident.firstName} ${resident.lastName}`,
           roomNumber,
           situationLabels,
           note: newNote,
@@ -622,6 +627,8 @@ export async function moveTemplateItem(id: string, direction: "up" | "down") {
   const a = items[idx];
   const b = items[swapIdx];
 
+  const ctx = await requestContext();
+
   await db.transaction(async (tx) => {
     await tx
       .update(nightCheckTemplateItems)
@@ -631,6 +638,18 @@ export async function moveTemplateItem(id: string, direction: "up" | "down") {
       .update(nightCheckTemplateItems)
       .set({ sortOrder: a.sortOrder, updatedAt: new Date() })
       .where(eq(nightCheckTemplateItems.id, b.id));
+    await writeAudit(
+      tx,
+      {
+        ...auditActor(staffMember),
+        action: "night_check_template.reorder",
+        entityType: "night_check_template_item",
+        entityId: a.id,
+        before: { sortOrder: a.sortOrder },
+        after: { sortOrder: b.sortOrder, direction },
+      },
+      ctx,
+    );
   });
 
   revalidatePath("/night-checks/template");
@@ -788,6 +807,8 @@ export async function moveSituationType(id: string, direction: "up" | "down") {
   const a = items[idx];
   const b = items[swapIdx];
 
+  const ctx = await requestContext();
+
   await db.transaction(async (tx) => {
     await tx
       .update(nightCheckSituationTypes)
@@ -797,6 +818,18 @@ export async function moveSituationType(id: string, direction: "up" | "down") {
       .update(nightCheckSituationTypes)
       .set({ sortOrder: a.sortOrder, updatedAt: new Date() })
       .where(eq(nightCheckSituationTypes.id, b.id));
+    await writeAudit(
+      tx,
+      {
+        ...auditActor(staffMember),
+        action: "night_check_situation.reorder",
+        entityType: "night_check_situation_type",
+        entityId: a.id,
+        before: { sortOrder: a.sortOrder },
+        after: { sortOrder: b.sortOrder, direction },
+      },
+      ctx,
+    );
   });
 
   revalidatePath("/night-checks/template");

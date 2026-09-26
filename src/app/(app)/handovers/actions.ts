@@ -418,10 +418,30 @@ export async function acknowledgeHandover(handoverId: string) {
   });
   if (!existing || existing.status === "draft") return;
 
-  await db
-    .insert(handoverAcknowledgements)
-    .values({ handoverId, staffId: staff.id })
-    .onConflictDoNothing();
+  const ctx = await requestContext();
+
+  await db.transaction(async (tx) => {
+    const [ack] = await tx
+      .insert(handoverAcknowledgements)
+      .values({ handoverId, staffId: staff.id })
+      .onConflictDoNothing()
+      .returning({ id: handoverAcknowledgements.id });
+
+    // onConflictDoNothing returns nothing when the person had already
+    // acknowledged — don't write a duplicate audit row for a repeat view.
+    if (!ack) return;
+
+    await writeAudit(
+      tx,
+      {
+        ...auditActor(staff),
+        action: "handover.acknowledge",
+        entityType: "handover",
+        entityId: handoverId,
+      },
+      ctx,
+    );
+  });
 
   revalidatePath(`/handovers/${handoverId}`);
 }
