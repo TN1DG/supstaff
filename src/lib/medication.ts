@@ -57,14 +57,6 @@ export function dayCode(d: Date): DayCode {
   return DAY_CODES[d.getDay()];
 }
 
-export function isScheduledToday(
-  schedule: { roundSlot: string; daysOfWeek: string[] },
-  round: MedicationRound,
-  date: Date,
-): boolean {
-  return schedule.roundSlot === round && schedule.daysOfWeek.includes(dayCode(date));
-}
-
 export type DisplayDoseStatus = "not_due" | "due" | "missed" | MedicationOutcomeValue;
 
 /**

@@ -46,7 +46,6 @@ export default async function HandoverPage({
   });
   if (!handover) notFound();
 
-  const payload = await buildHandoverPayload(id, staff.siteId);
   const isDraft = handover.status === "draft";
   // Any staff on shift can pick up a draft; submitting locks it.
   const canEdit = isDraft;
@@ -58,16 +57,21 @@ export default async function HandoverPage({
     (a) => a.staffId === staff.id,
   );
 
-  const queued = !isDraft
-    ? await db.$count(
-        outbox,
-        and(
-          eq(outbox.entityType, "handover"),
-          eq(outbox.entityId, id),
-          eq(outbox.target, "salesforce"),
+  // The notFound() guard above has to run first, but these two are independent
+  // of each other — two round trips here instead of three.
+  const [payload, queued] = await Promise.all([
+    buildHandoverPayload(id, staff.siteId),
+    isDraft
+      ? Promise.resolve(0)
+      : db.$count(
+          outbox,
+          and(
+            eq(outbox.entityType, "handover"),
+            eq(outbox.entityId, id),
+            eq(outbox.target, "salesforce"),
+          ),
         ),
-      )
-    : 0;
+  ]);
 
   const dateLong = new Intl.DateTimeFormat("en-GB", {
     dateStyle: "full",

@@ -1,5 +1,6 @@
-"use client"
-
+// No "use client" — these are plain markup wrappers with no hooks, state or
+// handlers, so they render on the server and ship as HTML rather than as
+// client component references in the Flight payload.
 import * as React from "react"
 import { cn } from "cn"
 

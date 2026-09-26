@@ -36,6 +36,19 @@ export default async function StaffPage() {
   const rows = await getDb().query.staff.findMany({
     where: eq(staffTable.siteId, me.siteId),
     orderBy: [asc(staffTable.name)],
+    // `pinHash` is read only as a boolean (the "no PIN" badge) and stays on
+    // the server; `passwordHash` is never needed here at all.
+    columns: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      isAdmin: true,
+      active: true,
+      engagedUntil: true,
+      lastLoginAt: true,
+      pinHash: true,
+    },
   });
 
   return (

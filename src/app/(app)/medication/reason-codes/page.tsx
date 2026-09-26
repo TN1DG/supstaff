@@ -7,7 +7,8 @@ import { requireRole } from "@/lib/rbac";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { AddReasonCodeDialog, EditReasonCodeDialog } from "./reason-code-dialogs";
-import { ReasonCodeRowActions } from "./reason-code-row-actions";
+import { OrderedRowActions } from "@/components/ordered-row-actions";
+import { moveReasonCode, setReasonCodeActive } from "../actions";
 
 export const metadata: Metadata = { title: "Medication reason codes" };
 
@@ -45,7 +46,9 @@ export default async function ReasonCodesPage() {
               >
                 <p className="font-medium">{item.label}</p>
                 <div className="flex items-center gap-1">
-                  <ReasonCodeRowActions
+                  <OrderedRowActions
+                    onMove={moveReasonCode}
+                    onSetActive={setReasonCodeActive}
                     id={item.id}
                     active
                     isFirst={idx === 0}
@@ -66,7 +69,12 @@ export default async function ReasonCodesPage() {
             {archived.map((item) => (
               <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <p className="font-medium text-muted-foreground">{item.label}</p>
-                <ReasonCodeRowActions id={item.id} active={false} />
+                <OrderedRowActions
+                  id={item.id}
+                  active={false}
+                  onMove={moveReasonCode}
+                  onSetActive={setReasonCodeActive}
+                />
               </div>
             ))}
           </CardContent>

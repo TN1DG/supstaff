@@ -13,11 +13,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PinField } from "@/components/pin-field";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { classifyFormError } from "@/lib/form-error-tone";
+import { FormError } from "@/components/form-error";
 import { addAddendum } from "../actions";
 
 export function AddendumDialog({ handoverId }: { handoverId: string }) {
@@ -61,27 +60,9 @@ export function AddendumDialog({ handoverId }: { handoverId: string }) {
               <Textarea id="body" name="body" rows={4} autoFocus required />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="pin">Signing PIN</Label>
-              <Input
-                id="pin"
-                name="pin"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={6}
-                required
-              />
+              <PinField />
             </div>
-            {error
-              ? (() => {
-                  const { tone, icon: Icon } = classifyFormError(error);
-                  return (
-                    <Alert variant={tone === "info" ? "info" : "destructive"} className="py-2">
-                      <Icon />
-                      <AlertDescription>{error}</AlertDescription>
-                    </Alert>
-                  );
-                })()
-              : null}
+            <FormError message={error} />
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>

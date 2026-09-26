@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { handovers } from "@/db/schema";
@@ -102,7 +103,11 @@ export function handoverToText(p: HandoverPayload): string {
   return lines.join("\n");
 }
 
-export async function buildHandoverPayload(
+/**
+ * Wrapped in `cache()` so the detail page, its outbox lookup and the PDF route
+ * share one fetch per request instead of re-running this multi-relation query.
+ */
+export const buildHandoverPayload = cache(async function buildHandoverPayload(
   handoverId: string,
   siteId: string,
 ): Promise<HandoverPayload> {
@@ -170,4 +175,4 @@ export async function buildHandoverPayload(
       body: a.body,
     })),
   };
-}
+});
