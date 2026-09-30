@@ -4,7 +4,7 @@ import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { PenLine, CheckCircle2, AlertTriangle } from "lucide-react";
 import { getDb } from "@/db";
 import { handovers } from "@/db/schema";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { hasRole } from "@/lib/roles";
 import { shiftLabel } from "@/lib/handover-payload";
 import { PageHeader } from "@/components/page-header";
@@ -30,7 +30,7 @@ function todayISO() {
 export default async function HandoversPage({
   searchParams,
 }: PageProps<"/handovers">) {
-  const staff = await requireStaff();
+  const staff = await requireCareStaff();
   const db = getDb();
   const isManager = hasRole(staff.role, "manager");
   const sp = await searchParams;

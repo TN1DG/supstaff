@@ -17,10 +17,15 @@ import {
 /* Enums                                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * `housing_officer` sits outside the care ladder (bank → support → manager):
+ * building reports only, no resident or medication data. See `src/lib/roles.ts`.
+ */
 export const staffRole = pgEnum("staff_role", [
   "bank_staff",
   "support_officer",
   "manager",
+  "housing_officer",
 ]);
 
 export const residentStatus = pgEnum("resident_status", [
@@ -84,6 +89,33 @@ export const medicationOutcome = pgEnum("medication_outcome", [
   "omitted",
   "not_available",
   "self_admin",
+]);
+
+/** Building-report lifecycle — the housing officer moves a report along it. */
+export const maintenanceStatus = pgEnum("maintenance_status", [
+  "open",
+  "acknowledged",
+  "in_progress",
+  "resolved",
+]);
+
+export const maintenancePriority = pgEnum("maintenance_priority", [
+  "low",
+  "normal",
+  "high",
+  "urgent",
+]);
+
+export const maintenanceCategory = pgEnum("maintenance_category", [
+  "plumbing",
+  "electrical",
+  "heating",
+  "fire_safety",
+  "security",
+  "structural",
+  "appliance",
+  "grounds",
+  "other",
 ]);
 
 /* ------------------------------------------------------------------ */
@@ -567,6 +599,74 @@ export const medicationAdministrations = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Building reports (Phase 4)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A building issue logged by any staff member, or raised by the housing
+ * officer from a night-check "Needs attention" finding (`sourceItemResultId`).
+ * Forwarded to Saw-it through the outbox on create and on every triage change.
+ */
+export const maintenanceReports = pgTable(
+  "maintenance_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    /** Free text — "Kitchen", "Stairwell B", "Room 7". */
+    location: text("location").notNull(),
+    /** Set when the issue is inside a resident room; one of ALL_ROOM_NUMBERS. */
+    roomNumber: integer("room_number"),
+    category: maintenanceCategory("category").notNull().default("other"),
+    priority: maintenancePriority("priority").notNull().default("normal"),
+    status: maintenanceStatus("status").notNull().default("open"),
+    reportedByStaffId: uuid("reported_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    sourceItemResultId: uuid("source_item_result_id")
+      .unique("maintenance_report_source_unique")
+      .references(() => nightCheckItemResults.id, { onDelete: "set null" }),
+    /** Contractor or person the job is with — free text until Saw-it syncs it back. */
+    assignedTo: text("assigned_to"),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByStaffId: uuid("resolved_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("maintenance_reports_site_status_created_idx").on(
+      t.siteId,
+      t.status,
+      t.createdAt.desc(),
+    ),
+    index("maintenance_reports_site_created_idx").on(t.siteId, t.createdAt.desc()),
+  ],
+);
+
+/** Append-only timeline — one row per create / triage change. */
+export const maintenanceReportUpdates = pgTable(
+  "maintenance_report_updates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    reportId: uuid("report_id")
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: "cascade" }),
+    staffId: uuid("staff_id").references(() => staff.id, { onDelete: "set null" }),
+    fromStatus: maintenanceStatus("from_status"),
+    toStatus: maintenanceStatus("to_status").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("maintenance_report_updates_report_idx").on(t.reportId, t.createdAt)],
+);
+
+/* ------------------------------------------------------------------ */
 /* Rate limiting — brute-force lockout for auth-sensitive actions      */
 /* ------------------------------------------------------------------ */
 
@@ -822,6 +922,45 @@ export const medicationAdministrationsRelations = relations(
   }),
 );
 
+export const maintenanceReportsRelations = relations(
+  maintenanceReports,
+  ({ one, many }) => ({
+    site: one(sites, {
+      fields: [maintenanceReports.siteId],
+      references: [sites.id],
+    }),
+    reportedBy: one(staff, {
+      fields: [maintenanceReports.reportedByStaffId],
+      references: [staff.id],
+      relationName: "maintenanceReportReportedBy",
+    }),
+    resolvedBy: one(staff, {
+      fields: [maintenanceReports.resolvedByStaffId],
+      references: [staff.id],
+      relationName: "maintenanceReportResolvedBy",
+    }),
+    sourceItemResult: one(nightCheckItemResults, {
+      fields: [maintenanceReports.sourceItemResultId],
+      references: [nightCheckItemResults.id],
+    }),
+    updates: many(maintenanceReportUpdates),
+  }),
+);
+
+export const maintenanceReportUpdatesRelations = relations(
+  maintenanceReportUpdates,
+  ({ one }) => ({
+    report: one(maintenanceReports, {
+      fields: [maintenanceReportUpdates.reportId],
+      references: [maintenanceReports.id],
+    }),
+    staff: one(staff, {
+      fields: [maintenanceReportUpdates.staffId],
+      references: [staff.id],
+    }),
+  }),
+);
+
 /* ------------------------------------------------------------------ */
 /* Inferred types                                                      */
 /* ------------------------------------------------------------------ */
@@ -846,6 +985,8 @@ export type NewMedication = typeof medications.$inferInsert;
 export type MedicationSchedule = typeof medicationSchedules.$inferSelect;
 export type MedicationReasonCode = typeof medicationReasonCodes.$inferSelect;
 export type MedicationAdministration = typeof medicationAdministrations.$inferSelect;
+export type MaintenanceReport = typeof maintenanceReports.$inferSelect;
+export type MaintenanceReportUpdate = typeof maintenanceReportUpdates.$inferSelect;
 
 export type StaffRole = (typeof staffRole.enumValues)[number];
 export type ShiftType = (typeof shiftType.enumValues)[number];
@@ -855,3 +996,6 @@ export type NightCheckRoundStatusValue = (typeof nightCheckRoundStatus.enumValue
 export type NightCheckItemKindValue = (typeof nightCheckItemKind.enumValues)[number];
 export type MedicationOutcomeValue = (typeof medicationOutcome.enumValues)[number];
 export type ResidentStatusValue = (typeof residentStatus.enumValues)[number];
+export type MaintenanceStatusValue = (typeof maintenanceStatus.enumValues)[number];
+export type MaintenancePriorityValue = (typeof maintenancePriority.enumValues)[number];
+export type MaintenanceCategoryValue = (typeof maintenanceCategory.enumValues)[number];

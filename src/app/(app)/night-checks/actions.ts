@@ -14,7 +14,7 @@ import {
   nightCheckTemplateItems,
   residents,
 } from "@/db/schema";
-import { assertRole, assertStaff } from "@/lib/rbac";
+import { assertRole, assertCareStaff } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { pinCheck } from "@/lib/pin";
 import { bySite } from "@/lib/db-scope";
@@ -35,7 +35,7 @@ const itemStatusValues = ["ok", "attention", "na"] as const;
  * a tampered form to lie about.
  */
 export async function checkInRound(formData: FormData) {
-  const staffMember = await assertStaff();
+  const staffMember = await assertCareStaff();
   const roundTime = String(formData.get("roundTime") ?? "");
   if (!isRoundTime(roundTime)) return;
   const checkDate = currentNightOf(new Date());
@@ -136,7 +136,7 @@ export async function saveRoundItems(
   _prev: SaveItemsState,
   formData: FormData,
 ): Promise<SaveItemsState> {
-  const staffMember = await assertStaff();
+  const staffMember = await assertCareStaff();
   const db = getDb();
 
   const round = await db.query.nightCheckRounds.findFirst({
@@ -219,7 +219,7 @@ export async function saveRoomCheck(
   _prev: SaveRoomCheckState,
   formData: FormData,
 ): Promise<SaveRoomCheckState> {
-  const staffMember = await assertStaff();
+  const staffMember = await assertCareStaff();
   if (!isValidRoomNumber(roomNumber)) return { error: "Not a real room." };
   const db = getDb();
 
@@ -398,7 +398,7 @@ export async function completeRound(
   roundId: string,
   formData: FormData,
 ): Promise<{ error?: string }> {
-  const staffMember = await assertStaff();
+  const staffMember = await assertCareStaff();
   const pin = String(formData.get("pin") ?? "");
   const db = getDb();
   const ctx = await requestContext();

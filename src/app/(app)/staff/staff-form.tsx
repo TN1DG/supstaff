@@ -112,6 +112,9 @@ export function StaffForm({
               <SelectItem value="bank_staff">Bank staff (temporary)</SelectItem>
               <SelectItem value="support_officer">Support officer</SelectItem>
               <SelectItem value="manager">Manager</SelectItem>
+              <SelectItem value="housing_officer">
+                Housing officer (building only)
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, not } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { staff } from "@/db/schema";
+import { staff, staffRole } from "@/db/schema";
 import { assertRole } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { bySite } from "@/lib/db-scope";
@@ -14,7 +14,7 @@ import { generateTempPassword, hashSecret } from "@/lib/password";
 const baseSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(160),
   email: z.string().trim().toLowerCase().email("Enter a valid email"),
-  role: z.enum(["bank_staff", "support_officer", "manager"]),
+  role: z.enum(staffRole.enumValues),
   phone: z.string().trim().max(40).optional().or(z.literal("")),
   engagedUntil: z.string().date().optional().or(z.literal("")),
   isAdmin: z.union([z.literal("on"), z.null(), z.literal("")]).optional(),

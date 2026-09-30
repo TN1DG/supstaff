@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { hasRole } from "@/lib/roles";
 import {
   MEDICATION_ROUNDS,
@@ -17,7 +17,7 @@ import { dueDosesForRound, prnMedications } from "./queries";
 export const metadata: Metadata = { title: "Medication" };
 
 export default async function MedicationPage() {
-  const staffMember = await requireStaff();
+  const staffMember = await requireCareStaff();
   const isManager = hasRole(staffMember.role, "manager");
   const now = new Date();
   const today = isoDate(now);

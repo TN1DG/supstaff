@@ -21,7 +21,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ residentId: string }> },
 ) {
-  const staff = await guardRoute();
+  const staff = await guardRoute("bank_staff");
   if (staff instanceof Response) return staff;
 
   const throttled = await rateLimitHit(`pdf:${staff.id}`, PDF_LIMIT);

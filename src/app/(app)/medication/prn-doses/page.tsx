@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { ShieldCheck } from "lucide-react";
 import { getDb } from "@/db";
 import { medicationReasonCodes } from "@/db/schema";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { listActiveStaff } from "@/lib/queries";
 import { DOSE_STATUS_META, checkPrnSafety } from "@/lib/medication";
 import { PageHeader } from "@/components/page-header";
@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: "PRN medications" };
 const timeFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 
 export default async function MedicationPrnPage() {
-  const staffMember = await requireStaff();
+  const staffMember = await requireCareStaff();
   const now = new Date();
 
   const [meds, reasonCodes, staffOptions] = await Promise.all([

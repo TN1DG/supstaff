@@ -25,6 +25,7 @@ const ROLE_BADGE_CLASS: Record<StaffRole, string> = {
   manager: "border-primary/50 bg-primary/10 text-primary",
   support_officer: "border-border bg-secondary text-secondary-foreground",
   bank_staff: "border-accent/50 bg-accent/20 text-accent-foreground",
+  housing_officer: "border-dashed border-foreground/30 bg-muted text-foreground",
 };
 
 const ENGAGEMENT_WARNING_DAYS = 14;

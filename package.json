@@ -18,6 +18,7 @@
     "seed:night-checks": "dotenv -e .env.local -- tsx scripts/seed-night-checks.ts",
     "seed:medication": "dotenv -e .env.local -- tsx scripts/seed-medication.ts",
     "seed:medication-scenarios": "dotenv -e .env.local -- tsx scripts/seed-medication-scenarios.ts",
+    "seed:maintenance": "dotenv -e .env.local -- tsx scripts/seed-maintenance.ts",
     "reset:pins": "dotenv -e .env.local -- tsx scripts/reset-pins.ts"
   },
   "dependencies": {

@@ -12,7 +12,7 @@ import {
   handovers,
   residents,
 } from "@/db/schema";
-import { assertStaff } from "@/lib/rbac";
+import { assertCareStaff } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { enqueueOutbox } from "@/lib/outbox";
 import { pinCheck } from "@/lib/pin";
@@ -53,7 +53,7 @@ async function loadEditableHandover(id: string, siteId: string) {
  * one per (site, date, shift) — everyone on shift writes into the same record.
  */
 export async function startOrOpenHandover(formData: FormData) {
-  const staff = await assertStaff();
+  const staff = await assertCareStaff();
   const date = String(formData.get("handoverDate") ?? "");
   const shift = String(formData.get("shift") ?? "");
   if (!z.string().date().safeParse(date).success) return;
@@ -136,7 +136,7 @@ export async function saveResidentEntry(
   _prev: SectionSaveState,
   formData: FormData,
 ): Promise<SectionSaveState> {
-  const staff = await assertStaff();
+  const staff = await assertCareStaff();
   const db = getDb();
 
   const handover = await db.query.handovers.findFirst({
@@ -245,7 +245,7 @@ export async function saveHouseNotes(
   _prev: SectionSaveState,
   formData: FormData,
 ): Promise<SectionSaveState> {
-  const staff = await assertStaff();
+  const staff = await assertCareStaff();
   const db = getDb();
 
   const parsed = z
@@ -315,7 +315,7 @@ export async function submitHandover(
   handoverId: string,
   formData: FormData,
 ): Promise<{ error?: string }> {
-  const staff = await assertStaff();
+  const staff = await assertCareStaff();
   const pin = String(formData.get("pin") ?? "");
 
   const db = getDb();
@@ -369,7 +369,7 @@ export async function addAddendum(
   handoverId: string,
   formData: FormData,
 ): Promise<{ error?: string }> {
-  const staff = await assertStaff();
+  const staff = await assertCareStaff();
   const body = String(formData.get("body") ?? "").trim();
   const pin = String(formData.get("pin") ?? "");
   if (body.length < 2) return { error: "Write the note first." };
@@ -409,7 +409,7 @@ export async function addAddendum(
 }
 
 export async function acknowledgeHandover(handoverId: string) {
-  const staff = await assertStaff();
+  const staff = await assertCareStaff();
   const db = getDb();
 
   const existing = await db.query.handovers.findFirst({
