@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { getDb } from "@/db";
 import { nightCheckRounds } from "@/db/schema";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { bySite } from "@/lib/db-scope";
 import { CHECKLIST_ITEM_STATUS_META, ROUND_STATUS_META } from "@/lib/night-checks";
 import { PageHeader } from "@/components/page-header";
@@ -29,7 +29,7 @@ const timeFmt = new Intl.DateTimeFormat("en-GB", {
 export default async function RoundPage({
   params,
 }: PageProps<"/night-checks/[id]">) {
-  const staffMember = await requireStaff();
+  const staffMember = await requireCareStaff();
   const { id } = await params;
   const db = getDb();
 

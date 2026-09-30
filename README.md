@@ -15,11 +15,12 @@ Tailwind + shadcn/ui, deployed on Vercel.
 | 0 | Foundation: auth, roles, staff + residents, audit log, outbox, design system | **built** |
 | 1 | Handovers | **built** |
 | 2 | Night building checks | **built** |
-| 3 | Full eMAR | next |
-| 4 | Maintenance capture + forward to Saw-it | planned |
+| 3 | Full eMAR | **built** |
+| 4 | Building reports + housing officer dashboard | **built** |
 | 5 | Salesforce / Saw-it API integration + manager insights | planned |
 
-Full plan: `~/.claude/plans/supstaff-is-an-app-velvet-harbor.md`
+Full plan: `~/.claude/plans/supstaff-is-an-app-velvet-harbor.md` ·
+Change history: [`docs/PROGRESS.md`](docs/PROGRESS.md)
 
 ## Local setup
 
@@ -72,6 +73,7 @@ Full plan: `~/.claude/plans/supstaff-is-an-app-velvet-harbor.md`
 | `npm run db:generate` | Generate a SQL migration from schema changes |
 | `npm run db:studio` | Drizzle Studio |
 | `npm run seed` | Seed site + manager (`-- --demo` for demo data) |
+| `npm run seed:maintenance` | Seed a housing officer + demo building reports |
 
 ## Roles
 
@@ -80,6 +82,9 @@ Full plan: `~/.claude/plans/supstaff-is-an-app-velvet-harbor.md`
   end-date auto-deactivates the account.
 - **Support officer** — permanent staff. All operational tasks; can edit
   resident day-to-day info and be a key worker.
+- **Housing officer** — building only. Triage building reports and
+  night-check building findings on `/building`; no access to residents,
+  handovers, medication or night-check rounds.
 - **Manager** — full access, including staff management, the audit log and
   (later) insights. Holds the technical `admin` flag.
 
@@ -97,7 +102,7 @@ src/
     login/ welcome/ denied/     Auth flows
     (app)/                       Authenticated shell + features
       residents/  staff/  audit/  account/  design/
-      handovers/ medication/ night-checks/ maintenance/ insights/
+      handovers/ medication/ night-checks/ maintenance/ building/ insights/
     api/auth/  api/cron/outbox/
   proxy.ts       Lightweight auth gate (real checks live in layouts/actions)
 ```

@@ -13,7 +13,7 @@ import {
   residents,
   staff,
 } from "@/db/schema";
-import { assertRole, assertStaff } from "@/lib/rbac";
+import { assertRole, assertCareStaff } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { pinCheck } from "@/lib/pin";
 import { bySite } from "@/lib/db-scope";
@@ -281,7 +281,7 @@ export async function recordAdministration(
   _prev: RecordDoseState,
   formData: FormData,
 ): Promise<RecordDoseState> {
-  const staffMember = await assertStaff();
+  const staffMember = await assertCareStaff();
 
   const parsedOutcome = z.enum(outcomeValues).safeParse(String(formData.get("outcome") ?? ""));
   if (!parsedOutcome.success) return { error: "Choose an outcome." };
@@ -470,7 +470,7 @@ export async function editPrnEffectNote(
   _prev: PrnEffectNoteState,
   formData: FormData,
 ): Promise<PrnEffectNoteState> {
-  const staffMember = await assertStaff();
+  const staffMember = await assertCareStaff();
   const note = String(formData.get("prnEffectNote") ?? "").trim().slice(0, 2000);
   if (!note) return { error: "Write the effect note first." };
 

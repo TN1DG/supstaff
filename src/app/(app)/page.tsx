@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, eq, gte } from "drizzle-orm";
 import { getDb } from "@/db";
 import { handovers, nightCheckRounds, residents } from "@/db/schema";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/icon";
 import { currentNightOf } from "@/lib/night-checks";
@@ -36,7 +36,7 @@ const QUICK_LINKS = [
 ];
 
 export default async function TodayPage() {
-  const staff = await requireStaff();
+  const staff = await requireCareStaff();
   const db = getDb();
   const firstName = staff.name.split(" ")[0] ?? staff.name;
 

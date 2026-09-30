@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { StartHandoverForm } from "../start-form";
@@ -7,7 +7,7 @@ import { StartHandoverForm } from "../start-form";
 export const metadata: Metadata = { title: "Start a handover" };
 
 export default async function NewHandoverPage() {
-  await requireStaff();
+  await requireCareStaff();
   const today = new Date().toISOString().slice(0, 10);
 
   return (

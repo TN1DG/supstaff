@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { residents } from "@/db/schema";
-import { requireStaff, hasRole } from "@/lib/rbac";
+import { requireCareStaff, hasRole } from "@/lib/rbac";
 import { RESIDENT_STATUS_META, riskFlagDescription } from "@/lib/residents";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -20,7 +20,7 @@ export default async function ResidentPage({
   params,
 }: PageProps<"/residents/[id]">) {
   const { id } = await params;
-  const staff = await requireStaff();
+  const staff = await requireCareStaff();
 
   const resident = await getDb().query.residents.findFirst({
     where: and(eq(residents.id, id), eq(residents.siteId, staff.siteId)),

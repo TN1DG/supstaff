@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { and, eq, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import { handovers, residents } from "@/db/schema";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { shiftLabel } from "@/lib/handover-payload";
 import { compareByRoom } from "@/lib/residents";
 import { PageHeader } from "@/components/page-header";
@@ -15,7 +15,7 @@ export default async function EditHandoverPage({
   params,
 }: PageProps<"/handovers/[id]/edit">) {
   const { id } = await params;
-  const staff = await requireStaff();
+  const staff = await requireCareStaff();
   const db = getDb();
 
   const handover = await db.query.handovers.findFirst({

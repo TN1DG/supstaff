@@ -3,7 +3,7 @@ import Link from "next/link";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { nightCheckRounds, nightCheckTemplateItems } from "@/db/schema";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { hasRole } from "@/lib/roles";
 import {
   ROUND_STATUS_META,
@@ -46,7 +46,7 @@ const DOT_CLASS: Record<StatusTone, string> = {
 };
 
 export default async function NightChecksPage() {
-  const staffMember = await requireStaff();
+  const staffMember = await requireCareStaff();
   const isManager = hasRole(staffMember.role, "manager");
   const db = getDb();
   const now = new Date();

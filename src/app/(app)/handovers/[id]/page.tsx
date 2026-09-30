@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { PenLine, CheckCircle2, AlertTriangle } from "lucide-react";
 import { getDb } from "@/db";
 import { handovers, outbox } from "@/db/schema";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import {
   buildHandoverPayload,
   handoverToText,
@@ -32,7 +32,7 @@ export default async function HandoverPage({
   params,
 }: PageProps<"/handovers/[id]">) {
   const { id } = await params;
-  const staff = await requireStaff();
+  const staff = await requireCareStaff();
   const db = getDb();
 
   const handover = await db.query.handovers.findFirst({

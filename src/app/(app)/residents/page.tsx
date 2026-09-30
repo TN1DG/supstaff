@@ -3,7 +3,7 @@ import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { residents } from "@/db/schema";
-import { requireStaff, hasRole } from "@/lib/rbac";
+import { requireCareStaff, hasRole } from "@/lib/rbac";
 import { RESIDENT_STATUS_META, riskFlagDescription } from "@/lib/residents";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -21,7 +21,7 @@ import {
 export const metadata: Metadata = { title: "Residents" };
 
 export default async function ResidentsPage() {
-  const staff = await requireStaff();
+  const staff = await requireCareStaff();
   const db = getDb();
 
   const rows = await db.query.residents.findMany({

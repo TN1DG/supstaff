@@ -5,7 +5,7 @@ import { eq, and } from "drizzle-orm";
 import { ShieldCheck } from "lucide-react";
 import { getDb } from "@/db";
 import { medicationReasonCodes } from "@/db/schema";
-import { requireStaff } from "@/lib/rbac";
+import { requireCareStaff } from "@/lib/rbac";
 import { listActiveStaff } from "@/lib/queries";
 import {
   DOSE_STATUS_META,
@@ -36,7 +36,7 @@ export default async function MedicationRoundPage({
   const { round } = await params;
   if (!isMedicationRound(round)) notFound();
 
-  const staffMember = await requireStaff();
+  const staffMember = await requireCareStaff();
   const now = new Date();
   const today = isoDate(now);
   const scheduledAt = medicationRoundScheduledAt(today, round);

@@ -1,10 +1,16 @@
 import { redirect } from "next/navigation";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
-import { ROLE_RANK } from "@/lib/roles";
+import { ROLE_RANK, canAccessCare, canManageBuilding } from "@/lib/roles";
 import type { StaffRole } from "@/db/schema";
 
-export { ROLE_RANK, ROLE_LABEL, hasRole } from "@/lib/roles";
+export {
+  ROLE_RANK,
+  ROLE_LABEL,
+  hasRole,
+  canAccessCare,
+  canManageBuilding,
+} from "@/lib/roles";
 
 export type SessionStaff = {
   id: string;
@@ -42,6 +48,26 @@ export async function requireRole(minRole: StaffRole): Promise<SessionStaff> {
   return staff;
 }
 
+/**
+ * Any care role (bank staff and up) — i.e. everyone except the housing
+ * officer. Use on every page that shows resident, handover or medication data.
+ * A housing officer landing here is sent to their own dashboard, not /denied.
+ */
+export async function requireCareStaff(): Promise<SessionStaff> {
+  const staff = await requireStaff();
+  if (!canAccessCare(staff.role)) {
+    redirect(canManageBuilding(staff.role) ? "/building" : "/denied");
+  }
+  return staff;
+}
+
+/** Housing officer or manager. */
+export async function requireBuildingManager(): Promise<SessionStaff> {
+  const staff = await requireStaff();
+  if (!canManageBuilding(staff.role)) redirect("/denied");
+  return staff;
+}
+
 /** For server actions — throws instead of redirecting. */
 export async function assertStaff(): Promise<SessionStaff> {
   const session = await auth();
@@ -54,6 +80,16 @@ export async function assertRole(minRole: StaffRole): Promise<SessionStaff> {
   if (ROLE_RANK[staff.role] < ROLE_RANK[minRole]) {
     throw new Error("Insufficient permissions");
   }
+  return staff;
+}
+
+export async function assertCareStaff(): Promise<SessionStaff> {
+  return assertRole("bank_staff");
+}
+
+export async function assertBuildingManager(): Promise<SessionStaff> {
+  const staff = await assertStaff();
+  if (!canManageBuilding(staff.role)) throw new Error("Insufficient permissions");
   return staff;
 }
 
