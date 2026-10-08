@@ -22,15 +22,128 @@ What changed, why, and how each phase got there. Setup lives in
 | 1 | Handovers | built | [↓](#phase-1--handovers) |
 | 2 | Night building checks | built | [↓](#phase-2--night-building-checks) |
 | 3 | Full eMAR | built | [↓](#phase-3--emar) |
-| 4 | Building reports + housing officer | **built — current** | [↓](#phase-4--building-reports--housing-officer) |
+| 4 | Building reports + housing officer | built | [↓](#phase-4--building-reports--housing-officer) |
+| — | Waking night checklist | **built — current** | [↓](#waking-night-checklist) |
 | 5 | Salesforce / Saw-it delivery + manager insights | next | — |
 | — | Maintenance & hardening | ongoing | [↓](#maintenance--hardening) |
 
 ---
 
-## Phase 4 — Building reports + housing officer
+## Waking night checklist
 
-**Started 2026-09-29 · current**
+**Started 2026-10-08 · current** · branch `feat/waking-night-checklist` ·
+plan `~/.claude/plans/elegant-wiggling-comet.md` · manual walk-through
+[`waking-night-test-plan.md`](waking-night-test-plan.md)
+
+Replaces the paper checklist night staff initialled. Built in four
+shippable steps: rounds + manual checklist (A), auto-completion (B),
+escalation follow-ups (C), quick reference (D).
+
+### What changed
+
+**Time and configuration**
+- Site-timezone helpers — [`src/lib/site-time.ts`](../src/lib/site-time.ts).
+  `sites.timezone` was stored but never read; every date was server-local
+  (UTC on Vercel). Night checks now use it.
+- `site_settings` (one row per service, all optional) + `getSiteConfig()` —
+  [`src/lib/site-settings.ts`](../src/lib/site-settings.ts). Manager page
+  [`/settings/service`](../src/app/(app)/settings/service/page.tsx): round
+  times, ± tolerance, evening med rounds, team email, quick-dial numbers,
+  lone-worker device.
+
+**Welfare rounds (= patrols; still `night_check_rounds`)**
+- New status `scheduled`; rounds are created when the shift starts.
+  New columns `scheduled_at`, `floors_covered`, `observations`, `timeliness`
+  (`on_time`/`late`/`missed`), `timeliness_reason`.
+- Timing rules — [`src/lib/waking-night/rounds.ts`](../src/lib/waking-night/rounds.ts):
+  on time = within ±tolerance; late = outside it but before the next round
+  (+2h for the last); missed = not done by then. Late/missed need a reason.
+- `checkInRound` claims the scheduled row; `completeRound` takes floors,
+  observations and a reason; new `setRoundReason` —
+  [`night-checks/actions.ts`](../src/app/(app)/night-checks/actions.ts).
+- Sweep cron marks rounds past their cutoff missed; moved to 10:00 UTC so it
+  runs after the 07:00 round's window in both GMT and BST —
+  [`api/cron/night-checks`](../src/app/api/cron/night-checks/route.ts), `vercel.json`.
+- In-app reminder (banner, toast, chime, browser notification) polls
+  [`/api/waking-night/rounds`](../src/app/api/waking-night/rounds/route.ts) —
+  [`round-reminder.tsx`](../src/components/round-reminder.tsx).
+
+**Shift, checklist and sign-off — `/waking-night`**
+- Tables `waking_night_shifts`, `shift_checklist_results`.
+- 12 items in code — [`checklist.ts`](../src/lib/waking-night/checklist.ts).
+  7 tick themselves from other modules —
+  [`auto-items.ts`](../src/lib/waking-night/auto-items.ts) (rules),
+  [`snapshot.ts`](../src/lib/waking-night/snapshot.ts) (queries). Missing
+  data → "Complete manually" with a reason.
+- Sign-off (PIN) blocked by [`signOffBlockers`](../src/lib/waking-night/sign-off.ts);
+  snapshots auto items with their evidence and writes a summary to the night
+  handover — [`waking-night/actions.ts`](../src/app/(app)/waking-night/actions.ts).
+- Night handovers show a checklist + follow-ups panel —
+  [`night-shift-panel.tsx`](../src/app/(app)/waking-night/night-shift-panel.tsx).
+
+**Events and escalation**
+- Tables `night_events`, `shift_follow_ups`; rules in
+  [`escalation.ts`](../src/lib/waking-night/escalation.ts). Logged from the
+  shift page or a round — [`event-actions.ts`](../src/app/(app)/waking-night/event-actions.ts).
+- Emergency repair raises an urgent building report (Saw-it outbox);
+  every event is written to the night handover; "email the team" queues an
+  `email` outbox row.
+
+**Medication issues**
+- Refused / omitted / not available doses go onto the current shift's
+  handover and queue a team email —
+  [`src/lib/medication-issues.ts`](../src/lib/medication-issues.ts), called
+  from `recordAdministration`.
+- `appendHandoverNote` generalises the night-check → handover writer —
+  [`src/lib/handover-sync.ts`](../src/lib/handover-sync.ts).
+
+**Other**
+- Handover start form defaults date + shift from site time; night handovers
+  are dated the evening the shift started —
+  [`src/lib/handover-defaults.ts`](../src/lib/handover-defaults.ts).
+- First test runner: vitest (`npm test`), 68 tests on the pure rules.
+- Migrations `0007` (A/B) and `0008` (C).
+
+### Why
+
+- **One round entity.** Patrols and welfare rounds are the same walk, and
+  night checks already modelled it; extending it kept the welfare drill-down
+  and handover flags.
+- **App-only for Salesforce** (user's call, 2026-10-08). The outbox already
+  carries `night_event` / `medication_administration` email rows; the
+  Salesforce shape is decided in Phase 5 (record type on `In_Form_Action__c`
+  + Tasks recommended).
+- **Email: queue + confirm.** No email provider yet, so the row is queued and
+  staff tick that they emailed; the checklist can't claim a send it can't see.
+- **"Uploaded to In-Form" can't auto-tick** until Salesforce delivery exists —
+  it only ticks on a `sent` outbox row.
+- **Pure rules, tested.** Round status, auto items, escalation and sign-off
+  are pure functions so page, action and cron can't disagree.
+
+### How it progressed
+
+| Date | Step |
+| --- | --- |
+| 2026-10-08 | Planned with the user: app-only Salesforce, night event log (not a full incidents module), queue + manual tick for email, in-app reminders. |
+| 2026-10-08 | Found `.env.local` points at an expired neon.new claimable project, not the Vercel-linked Neon project. Created Neon branch `waking-night-dev` from the Vercel project's `main`; `drizzle-kit migrate` applied pending `0006` + `0007` + `0008` cleanly. |
+| 2026-10-08 | End-to-end over HTTP against the branch, driving the real server actions: start shift, sweep, events → follow-ups/report/outbox/handover, validation errors, late round completion, auto items ticking, blocked then successful sign-off, post-sign-off edits refused. |
+
+### Follow-ups
+
+- [ ] Browser walk-through (Chrome extension wasn't connected) — see the test plan.
+- [ ] Apply `0006`–`0008` to production `main` when deploying.
+- [ ] Repoint `.env.local` — the claimable project it uses has expired.
+- [ ] eMAR still records `scheduled_date` in server time; bedtime doses
+      recorded after 00:00 UTC land on the next date.
+- [ ] Phase 5: email + Salesforce delivery, then "uploaded to In-Form" can auto-tick.
+- [ ] Optional seed script for a demo night.
+
+---
+
+<details>
+<summary><strong>Phase 4 — Building reports + housing officer</strong> · built 2026-09-30</summary>
+
+**Started 2026-09-29**
 
 ### What changed
 
@@ -140,6 +253,7 @@ What changed, why, and how each phase got there. Setup lives in
       `ROUND_TIMES`).
 - [ ] Optional: notify the housing officer (email via outbox) on `urgent` reports.
 
+</details>
 ---
 
 <details>

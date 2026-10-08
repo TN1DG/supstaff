@@ -20,6 +20,7 @@ import { SubmitHandoverDialog } from "./submit-dialog";
 import { AddendumDialog } from "./addendum-dialog";
 import { AcknowledgeButton } from "./acknowledge-button";
 import { SalesforcePanel } from "./salesforce-panel";
+import { NightShiftPanel } from "../../waking-night/night-shift-panel";
 
 export const metadata: Metadata = { title: "Handover" };
 
@@ -224,6 +225,10 @@ export default async function HandoverPage({
         </div>
 
         <div className="space-y-6">
+          {handover.shift === "night" ? (
+            <NightShiftPanel siteId={staff.siteId} night={handover.handoverDate} />
+          ) : null}
+
           {!isDraft ? (
             <SalesforcePanel
               handoverId={id}

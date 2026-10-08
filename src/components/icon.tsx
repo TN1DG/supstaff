@@ -10,6 +10,8 @@ import {
   ScrollText,
   ClipboardList,
   Building2,
+  ClipboardCheck,
+  Settings2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -25,6 +27,8 @@ const ICONS: Record<string, LucideIcon> = {
   ScrollText,
   ClipboardList,
   Building2,
+  ClipboardCheck,
+  Settings2,
 };
 
 export function Icon({
