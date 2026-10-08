@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import {
   Select,
   SelectContent,
@@ -13,8 +13,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { startOrOpenHandover } from "./actions";
 
-export function StartHandoverForm({ today }: { today: string }) {
+export function StartHandoverForm({
+  today,
+  night,
+  defaultShift,
+}: {
+  today: string;
+  /** The evening the current/last night shift started — night handovers use this date. */
+  night: string;
+  defaultShift: "early" | "late" | "night";
+}) {
   const [pending, start] = useTransition();
+  const [shift, setShift] = useState(defaultShift);
 
   return (
     <form
@@ -24,17 +34,22 @@ export function StartHandoverForm({ today }: { today: string }) {
       <div className="space-y-1.5">
         <Label htmlFor="handoverDate">Date</Label>
         <Input
+          key={shift}
           id="handoverDate"
           name="handoverDate"
           type="date"
-          defaultValue={today}
+          defaultValue={shift === "night" ? night : today}
           className="w-auto"
           required
         />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="shift">Shift</Label>
-        <Select name="shift" defaultValue="late">
+        <Select
+          name="shift"
+          value={shift}
+          onValueChange={(v) => setShift(v as typeof shift)}
+        >
           <SelectTrigger id="shift" className="w-32">
             <SelectValue />
           </SelectTrigger>
@@ -50,6 +65,7 @@ export function StartHandoverForm({ today }: { today: string }) {
       </Button>
       <p className="w-full text-xs text-muted-foreground">
         One handover per shift — everyone on shift writes into the same one.
+        A night handover is dated the evening the shift started.
       </p>
     </form>
   );

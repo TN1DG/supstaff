@@ -57,14 +57,19 @@ const administrationsOn = cache(async (siteId: string, dateIso: string) =>
   }),
 );
 
-/** Every active resident's medications due for a given round today, with today's recorded outcome if any. */
+/**
+ * Every active resident's medications due for a given round today (or on
+ * `onDate`), with the recorded outcome if any. The waking-night checklist
+ * passes `onDate` so a night shift checks the evening's doses after midnight.
+ */
 export async function dueDosesForRound(
   siteId: string,
   round: MedicationRound,
   now: Date,
+  onDate?: string,
 ): Promise<DueDose[]> {
-  const today = isoDate(now);
-  const day = dayCode(now);
+  const today = onDate ?? isoDate(now);
+  const day = onDate ? dayCode(new Date(`${onDate}T12:00:00`)) : dayCode(now);
 
   const [meds, allAdministrations] = await Promise.all([
     scheduledMedications(siteId),

@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import { sites } from "@/db/schema";
 import { requireStaff } from "@/lib/rbac";
 import { navForRole } from "@/lib/nav";
+import { canAccessCare } from "@/lib/roles";
 import {
   SidebarInset,
   SidebarProvider,
@@ -14,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { AppSidebar } from "@/components/app-sidebar";
 import { UserMenu } from "@/components/user-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { RoundReminder } from "@/components/round-reminder";
 
 /**
  * This layout wraps every authenticated route, so without `cache()` the site
@@ -54,6 +56,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           {children}
         </div>
       </SidebarInset>
+      {canAccessCare(staff.role) ? <RoundReminder /> : null}
     </SidebarProvider>
   );
 }
