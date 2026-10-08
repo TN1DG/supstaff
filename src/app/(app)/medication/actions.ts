@@ -16,6 +16,7 @@ import {
 import { assertRole, assertCareStaff } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { pinCheck } from "@/lib/pin";
+import { isMedicationIssue, reportMedicationIssue } from "@/lib/medication-issues";
 import { bySite } from "@/lib/db-scope";
 import { fieldErrors } from "@/lib/forms";
 import {
@@ -440,6 +441,24 @@ export async function recordAdministration(
         },
         ctx,
       );
+
+      // Medication issues must reach the handover and the team.
+      if (isMedicationIssue(outcome)) {
+        await reportMedicationIssue(tx, {
+          siteId: staffMember.siteId,
+          administrationId: row.id,
+          residentId,
+          medicationName: medication.name,
+          strength: medication.strength,
+          scheduledRound,
+          outcome,
+          reasonCodeId: reasonCode?.id ?? null,
+          notes,
+          staff: { id: staffMember.id, name: staffMember.name },
+          ctx,
+          now,
+        });
+      }
     });
   } catch (err) {
     if (scheduledRound !== null) {

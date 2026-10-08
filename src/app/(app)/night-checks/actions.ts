@@ -18,27 +18,33 @@ import { assertRole, assertCareStaff } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { pinCheck } from "@/lib/pin";
 import { bySite } from "@/lib/db-scope";
-import { fieldErrors } from "@/lib/forms";
+import { fieldErrors, firstIssue } from "@/lib/forms";
+import { ALL_FLOORS, isValidRoomNumber } from "@/lib/night-checks";
+import { getSiteConfig } from "@/lib/site-settings";
+import { nightOf, nightSlotAt } from "@/lib/site-time";
 import {
-  ALL_ROOM_NUMBERS,
-  currentNightOf,
-  isRoundTime,
-  isValidRoomNumber,
-} from "@/lib/night-checks";
+  LAST_ROUND_GRACE_MINUTES,
+  buildRoundSchedule,
+  needsReason,
+  roundTimeliness,
+} from "@/lib/waking-night/rounds";
+import { seedRoundContents } from "@/lib/waking-night/round-store";
 import { writeNightCheckHandoverNote } from "@/lib/handover-sync";
 
 const itemStatusValues = ["ok", "attention", "na"] as const;
 
 /**
- * Check in to the round due right now. The night and time slot are computed
- * server-side (the button only says which slot), so there's nothing here for
- * a tampered form to lie about.
+ * Check in to a round. The night and the slot's time are computed server-side
+ * (the button only says which slot), so there's nothing here for a tampered
+ * form to lie about. If the waking-night shift pre-created a `scheduled` row,
+ * check-in claims it; otherwise the row is created now.
  */
 export async function checkInRound(formData: FormData) {
   const staffMember = await assertCareStaff();
   const roundTime = String(formData.get("roundTime") ?? "");
-  if (!isRoundTime(roundTime)) return;
-  const checkDate = currentNightOf(new Date());
+  const now = new Date();
+  const config = await getSiteConfig(staffMember.siteId);
+  const checkDate = nightOf(now, config.timezone);
 
   const db = getDb();
   const findExisting = () =>
@@ -48,75 +54,61 @@ export async function checkInRound(formData: FormData) {
         eq(nightCheckRounds.checkDate, checkDate),
         eq(nightCheckRounds.roundTime, roundTime),
       ),
-      columns: { id: true },
+      columns: { id: true, status: true },
     });
 
   const existing = await findExisting();
-  if (existing) redirect(`/night-checks/${existing.id}`);
+  if (existing && existing.status !== "scheduled") redirect(`/night-checks/${existing.id}`);
+  const slot = buildRoundSchedule(config.roundTimes, checkDate, config.timezone).find(
+    (s) => s.roundTime === roundTime,
+  );
+  if (!existing && !slot) return;
 
-  const now = new Date();
-  let newId: string;
+  let roundId: string;
   try {
-    newId = await db.transaction(async (tx) => {
-      const activeItems = await tx.query.nightCheckTemplateItems.findMany({
-        where: and(
-          eq(nightCheckTemplateItems.siteId, staffMember.siteId),
-          eq(nightCheckTemplateItems.active, true),
-        ),
-        columns: { id: true, kind: true },
-      });
-
-      const [row] = await tx
-        .insert(nightCheckRounds)
-        .values({
-          siteId: staffMember.siteId,
-          checkDate,
-          roundTime,
-          staffId: staffMember.id,
-          startedAt: now,
-          status: "in_progress",
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning({ id: nightCheckRounds.id });
-
-      if (activeItems.length > 0) {
-        await tx.insert(nightCheckItemResults).values(
-          activeItems.map((it) => ({
-            roundId: row.id,
-            templateItemId: it.id,
-            // Silence = OK for the welfare drill-down — no per-room
-            // confirmation needed to complete a clean round. Every other
-            // item still starts unanswered.
-            status: it.kind === "resident_welfare" ? ("ok" as const) : null,
+    roundId = await db.transaction(async (tx) => {
+      let id: string;
+      if (existing) {
+        // Conditional on still being `scheduled`, so two people checking in
+        // at once can't both claim it.
+        const [claimed] = await tx
+          .update(nightCheckRounds)
+          .set({ staffId: staffMember.id, startedAt: now, status: "in_progress", updatedAt: now })
+          .where(
+            and(eq(nightCheckRounds.id, existing.id), eq(nightCheckRounds.status, "scheduled")),
+          )
+          .returning({ id: nightCheckRounds.id });
+        if (!claimed) return existing.id;
+        id = claimed.id;
+      } else {
+        const [row] = await tx
+          .insert(nightCheckRounds)
+          .values({
+            siteId: staffMember.siteId,
+            checkDate,
+            roundTime,
+            scheduledAt: slot!.scheduledAt,
+            staffId: staffMember.id,
+            startedAt: now,
+            status: "in_progress",
             createdAt: now,
             updatedAt: now,
-          })),
-        );
+          })
+          .returning({ id: nightCheckRounds.id });
+        id = row.id;
       }
 
-      const welfareItem = activeItems.find((it) => it.kind === "resident_welfare");
-      if (welfareItem) {
-        await tx.insert(nightCheckRoomChecks).values(
-          ALL_ROOM_NUMBERS.map((roomNumber) => ({
-            roundId: row.id,
-            templateItemId: welfareItem.id,
-            roomNumber,
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-      }
+      await seedRoundContents(tx, staffMember.siteId, id, now);
 
       await writeAudit(tx, {
         ...auditActor(staffMember),
         action: "night_check.start",
         entityType: "night_check_round",
-        entityId: row.id,
+        entityId: id,
         after: { checkDate, roundTime },
       });
 
-      return row.id;
+      return id;
     });
   } catch (err) {
     // Lost a race to check in — send them to the round that won.
@@ -125,7 +117,7 @@ export async function checkInRound(formData: FormData) {
     throw err;
   }
 
-  redirect(`/night-checks/${newId}`);
+  redirect(`/night-checks/${roundId}`);
 }
 
 export type SaveItemsState = { ok?: boolean; error?: string };
@@ -221,6 +213,7 @@ export async function saveRoomCheck(
 ): Promise<SaveRoomCheckState> {
   const staffMember = await assertCareStaff();
   if (!isValidRoomNumber(roomNumber)) return { error: "Not a real room." };
+  const { timezone } = await getSiteConfig(staffMember.siteId);
   const db = getDb();
 
   const round = await db.query.nightCheckRounds.findFirst({
@@ -385,6 +378,7 @@ export async function saveRoomCheck(
           round: { id: round.id, roundTime: round.roundTime },
           staff: { id: staffMember.id, name: staffMember.name },
           ctx,
+          timezone,
         });
       }
     }
@@ -394,18 +388,52 @@ export async function saveRoomCheck(
   return { ok: true };
 }
 
+const completeSchema = z.object({
+  floors: z
+    .array(z.coerce.number().int())
+    .min(1, "Tick at least one floor you walked.")
+    .refine((fs) => fs.every((f) => ALL_FLOORS.includes(f)), "Unknown floor."),
+  observations: z.string().trim().max(2000).optional(),
+  reason: z.string().trim().max(500).optional(),
+});
+
+/** When a round was due and when it stops being recoverable, for timeliness. */
+async function roundTiming(
+  siteId: string,
+  round: { checkDate: string; roundTime: string; scheduledAt: Date | null },
+) {
+  const config = await getSiteConfig(siteId);
+  const slot = buildRoundSchedule(config.roundTimes, round.checkDate, config.timezone).find(
+    (s) => s.roundTime === round.roundTime,
+  );
+  const scheduledAt =
+    round.scheduledAt ??
+    slot?.scheduledAt ??
+    nightSlotAt(round.checkDate, round.roundTime, config.timezone);
+  const cutoff =
+    slot?.cutoff ?? new Date(scheduledAt.getTime() + LAST_ROUND_GRACE_MINUTES * 60_000);
+  return { scheduledAt, cutoff, toleranceMinutes: config.roundToleranceMinutes };
+}
+
 export async function completeRound(
   roundId: string,
   formData: FormData,
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; reasonRequired?: boolean }> {
   const staffMember = await assertCareStaff();
   const pin = String(formData.get("pin") ?? "");
   const db = getDb();
   const ctx = await requestContext();
 
+  const parsed = completeSchema.safeParse({
+    floors: formData.getAll("floors"),
+    observations: formData.get("observations") || undefined,
+    reason: formData.get("reason") || undefined,
+  });
+  if (!parsed.success) return { error: firstIssue(parsed.error) };
+
   const round = await db.query.nightCheckRounds.findFirst({
     where: bySite(nightCheckRounds, roundId, staffMember.siteId),
-    columns: { id: true, status: true },
+    columns: { id: true, status: true, checkDate: true, roundTime: true, scheduledAt: true },
     with: {
       items: {
         columns: { status: true, note: true },
@@ -434,17 +462,30 @@ export async function completeRound(
     return { error: "Add a note for anything flagged as needing attention." };
   }
 
+  const now = new Date();
+  const timeliness = roundTimeliness({ ...(await roundTiming(staffMember.siteId, round)), completedAt: now });
+  const reason = parsed.data.reason || null;
+  if (needsReason(timeliness) && !reason) {
+    return {
+      reasonRequired: true,
+      error: `This round is ${timeliness === "late" ? "outside its time window" : "past its window"} — say why before completing it.`,
+    };
+  }
+
   const pinError = await pinCheck(staffMember.id, pin);
   if (pinError) return { error: pinError };
 
   await db.transaction(async (tx) => {
-    const now = new Date();
     await tx
       .update(nightCheckRounds)
       .set({
         status: "complete",
         completedAt: now,
         completedByStaffId: staffMember.id,
+        floorsCovered: [...new Set(parsed.data.floors)].sort(),
+        observations: parsed.data.observations || null,
+        timeliness,
+        timelinessReason: needsReason(timeliness) ? reason : null,
         updatedAt: now,
       })
       .where(eq(nightCheckRounds.id, roundId));
@@ -455,6 +496,7 @@ export async function completeRound(
         action: "night_check.complete",
         entityType: "night_check_round",
         entityId: roundId,
+        after: { timeliness, floorsCovered: parsed.data.floors, reason },
       },
       ctx,
     );
@@ -462,7 +504,80 @@ export async function completeRound(
 
   revalidatePath("/night-checks");
   revalidatePath(`/night-checks/${roundId}`);
+  revalidatePath("/waking-night");
   return {};
+}
+
+export type RoundReasonState = { error?: string; ok?: boolean };
+
+/**
+ * Explain a late or missed round after the fact. A `scheduled` round past its
+ * cutoff is recorded as missed here, so the reason always has a verdict to
+ * belong to.
+ */
+export async function setRoundReason(
+  roundId: string,
+  _prev: RoundReasonState,
+  formData: FormData,
+): Promise<RoundReasonState> {
+  const staffMember = await assertCareStaff();
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (reason.length < 3) return { error: "Give a short reason." };
+  if (reason.length > 500) return { error: "Keep the reason under 500 characters." };
+
+  const db = getDb();
+  const ctx = await requestContext();
+  const round = await db.query.nightCheckRounds.findFirst({
+    where: bySite(nightCheckRounds, roundId, staffMember.siteId),
+    columns: {
+      id: true,
+      status: true,
+      checkDate: true,
+      roundTime: true,
+      scheduledAt: true,
+      completedAt: true,
+      timeliness: true,
+    },
+  });
+  if (!round) return { error: "Round not found." };
+
+  const now = new Date();
+  const timing = await roundTiming(staffMember.siteId, round);
+  const timeliness =
+    round.timeliness ??
+    (round.completedAt || now >= timing.cutoff
+      ? roundTimeliness({ ...timing, completedAt: round.completedAt })
+      : null);
+  if (!needsReason(timeliness)) return { error: "This round isn't late or missed." };
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(nightCheckRounds)
+      .set({
+        timeliness,
+        timelinessReason: reason,
+        // An untouched round past its cutoff is now on record as missed.
+        ...(round.status === "scheduled" ? { status: "missed" as const } : {}),
+        updatedAt: now,
+      })
+      .where(eq(nightCheckRounds.id, roundId));
+    await writeAudit(
+      tx,
+      {
+        ...auditActor(staffMember),
+        action: "night_check.reason",
+        entityType: "night_check_round",
+        entityId: roundId,
+        after: { timeliness, reason },
+      },
+      ctx,
+    );
+  });
+
+  revalidatePath("/night-checks");
+  revalidatePath(`/night-checks/${roundId}`);
+  revalidatePath("/waking-night");
+  return { ok: true };
 }
 
 /* -------------------------------------------------------------------- */

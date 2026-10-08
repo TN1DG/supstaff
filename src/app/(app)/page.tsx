@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { and, eq, gte } from "drizzle-orm";
 import { getDb } from "@/db";
-import { handovers, nightCheckRounds, residents } from "@/db/schema";
+import { handovers, nightCheckRounds, residents, wakingNightShifts } from "@/db/schema";
 import { requireCareStaff } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/icon";
-import { currentNightOf } from "@/lib/night-checks";
+import { getSiteConfig } from "@/lib/site-settings";
+import { nightOf } from "@/lib/site-time";
 
 function greeting(d = new Date()) {
   const h = d.getHours();
@@ -42,9 +43,10 @@ export default async function TodayPage() {
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
-  const checkDate = currentNightOf(new Date());
+  const config = await getSiteConfig(staff.siteId);
+  const checkDate = nightOf(new Date(), config.timezone);
 
-  const [residentCount, todaysHandovers, tonightRounds] = await Promise.all([
+  const [residentCount, todaysHandovers, tonightRounds, tonightShift] = await Promise.all([
     db.$count(residents, and(eq(residents.siteId, staff.siteId), eq(residents.status, "active"))),
     db.$count(
       handovers,
@@ -59,6 +61,13 @@ export default async function TodayPage() {
         eq(nightCheckRounds.checkDate, checkDate),
       ),
       columns: { id: true, roundTime: true, status: true },
+    }),
+    db.query.wakingNightShifts.findFirst({
+      where: and(
+        eq(wakingNightShifts.siteId, staff.siteId),
+        eq(wakingNightShifts.shiftDate, checkDate),
+      ),
+      columns: { status: true },
     }),
   ]);
 
@@ -76,6 +85,23 @@ export default async function TodayPage() {
         title: "Do the night check",
         body: "Check in on the building any time during your shift — no need to wait for the scheduled time.",
       };
+
+  const wakingNightLink = {
+    href: "/waking-night",
+    icon: "ClipboardCheck",
+    title:
+      tonightShift?.status === "signed_off"
+        ? "Waking night signed off"
+        : tonightShift
+          ? "Continue the waking night"
+          : "Start the waking night",
+    body:
+      tonightShift?.status === "signed_off"
+        ? "Tonight's checklist is complete — view the record."
+        : tonightShift
+          ? "Rounds, checklist and sign-off for tonight's shift."
+          : "Sets up tonight's welfare rounds and opens the end-of-shift checklist.",
+  };
 
   const today = new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
@@ -98,7 +124,7 @@ export default async function TodayPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[nightCheckLink, ...QUICK_LINKS].map((link) => (
+        {[wakingNightLink, nightCheckLink, ...QUICK_LINKS].map((link) => (
           <Link key={link.href} href={link.href} className="group">
             <Card className="h-full transition-colors group-hover:border-primary/40 group-hover:bg-accent/30">
               <CardHeader>

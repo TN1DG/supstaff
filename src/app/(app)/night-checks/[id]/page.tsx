@@ -6,7 +6,18 @@ import { getDb } from "@/db";
 import { nightCheckRounds } from "@/db/schema";
 import { requireCareStaff } from "@/lib/rbac";
 import { bySite } from "@/lib/db-scope";
-import { CHECKLIST_ITEM_STATUS_META, ROUND_STATUS_META } from "@/lib/night-checks";
+import {
+  ALL_FLOORS,
+  CHECKLIST_ITEM_STATUS_META,
+  ROUND_STATE_META,
+  ROUND_STATUS_META,
+} from "@/lib/night-checks";
+import { getSiteConfig } from "@/lib/site-settings";
+import { localTime } from "@/lib/site-time";
+import { and, asc, eq } from "drizzle-orm";
+import { residents, wakingNightShifts } from "@/db/schema";
+import { EventDialog } from "../../waking-night/event-dialog";
+import { buildRoundSchedule, mergeNightRounds } from "@/lib/waking-night/rounds";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,10 +31,6 @@ const dateFmt = new Intl.DateTimeFormat("en-GB", {
   weekday: "short",
   day: "2-digit",
   month: "short",
-});
-const timeFmt = new Intl.DateTimeFormat("en-GB", {
-  hour: "2-digit",
-  minute: "2-digit",
 });
 
 export default async function RoundPage({
@@ -48,6 +55,47 @@ export default async function RoundPage({
     },
   });
   if (!round) notFound();
+
+  const config = await getSiteConfig(staffMember.siteId);
+  const timeFmt = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: config.timezone,
+  });
+  const now = new Date();
+  const timing = mergeNightRounds(
+    buildRoundSchedule(config.roundTimes, round.checkDate, config.timezone),
+    [round],
+    config.roundToleranceMinutes,
+    now,
+  ).find((r) => r.roundTime === round.roundTime);
+  const shift = await db.query.wakingNightShifts.findFirst({
+    where: and(
+      eq(wakingNightShifts.siteId, staffMember.siteId),
+      eq(wakingNightShifts.shiftDate, round.checkDate),
+    ),
+    columns: { id: true, status: true },
+  });
+  const residentOptions =
+    shift?.status === "open"
+      ? (
+          await db.query.residents.findMany({
+            where: and(eq(residents.siteId, staffMember.siteId), eq(residents.status, "active")),
+            columns: { id: true, firstName: true, lastName: true, preferredName: true, room: true },
+            orderBy: [asc(residents.lastName)],
+          })
+        ).map((r) => ({
+          id: r.id,
+          name: `${r.preferredName ?? r.firstName} ${r.lastName}`,
+          room: r.room,
+        }))
+      : [];
+
+  // Completing now would land outside ±tolerance: early, overdue, or past the cutoff.
+  const lateHint =
+    !!timing &&
+    (now.getTime() < timing.scheduledAt.getTime() - config.roundToleranceMinutes * 60_000 ||
+      now.getTime() > timing.scheduledAt.getTime() + config.roundToleranceMinutes * 60_000);
 
   const items = round.items
     .slice()
@@ -74,13 +122,35 @@ export default async function RoundPage({
         <StatusBadge tone={ROUND_STATUS_META[round.status].tone}>
           {ROUND_STATUS_META[round.status].label}
         </StatusBadge>
+        {shift?.status === "open" && round.status !== "scheduled" ? (
+          <EventDialog
+            shiftId={shift.id}
+            residents={residentOptions}
+            defaultTime={localTime(now, config.timezone)}
+            roundId={round.id}
+            triggerLabel="Log an event from this round"
+          />
+        ) : null}
+        {timing?.timeliness ? (
+          <StatusBadge tone={ROUND_STATE_META[timing.timeliness].tone}>
+            {ROUND_STATE_META[timing.timeliness].label}
+          </StatusBadge>
+        ) : null}
       </PageHeader>
 
-      {round.status === "missed" ? (
+      {round.timelinessReason ? (
+        <p className="mb-4 text-sm">
+          <span className="text-muted-foreground">Reason given: </span>
+          {round.timelinessReason}
+        </p>
+      ) : null}
+
+      {round.status === "missed" || round.status === "scheduled" ? (
         <Card>
           <CardContent className="py-6 text-sm text-muted-foreground">
-            This round&rsquo;s window passed without anyone checking in — it
-            was recorded as missed for the manager&rsquo;s compliance report.
+            {round.status === "missed"
+              ? "This round’s window passed without anyone checking in — it was recorded as missed for the manager’s compliance report."
+              : "Nobody has checked in to this round yet. Check in from tonight’s rounds."}
           </CardContent>
         </Card>
       ) : (
@@ -95,7 +165,18 @@ export default async function RoundPage({
                 {timeFmt.format(round.completedAt)}
               </>
             ) : null}
+            {round.floorsCovered?.length
+              ? ` · Floors covered: ${round.floorsCovered.join(", ")}`
+              : ""}
           </p>
+          {round.observations ? (
+            <Card>
+              <CardContent className="space-y-1 py-4 text-sm">
+                <p className="font-medium">Observations</p>
+                <p className="whitespace-pre-wrap">{round.observations}</p>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {round.status === "in_progress" ? (
             <>
@@ -129,7 +210,11 @@ export default async function RoundPage({
                   </p>
                 )}
                 <div className="ml-auto">
-                  <CompleteRoundDialog roundId={round.id} />
+                  <CompleteRoundDialog
+                    roundId={round.id}
+                    floors={ALL_FLOORS}
+                    lateHint={lateHint}
+                  />
                 </div>
               </div>
             </>

@@ -62,16 +62,49 @@ export const nightCheckItemStatus = pgEnum("night_check_item_status", [
 ]);
 
 /**
- * A round row only ever exists once someone checks in (`in_progress`/`complete`)
- * or the daily sweep cron gives up on it (`missed`) — there is no stored
- * "pending" state; an unstarted-but-not-yet-due round is computed, not
- * persisted. See `src/lib/night-checks.ts`.
+ * `scheduled` rows are created up front when a waking-night shift starts;
+ * without a shift a row still only appears once someone checks in
+ * (`in_progress`/`complete`) or the sweep cron gives up on it (`missed`).
+ * Whether an open round is due/overdue is computed, never stored — see
+ * `src/lib/waking-night/rounds.ts`.
  */
 export const nightCheckRoundStatus = pgEnum("night_check_round_status", [
+  "scheduled",
   "in_progress",
   "complete",
   "missed",
 ]);
+
+/** How a round went against its scheduled time ± the site's tolerance. */
+export const roundTimeliness = pgEnum("round_timeliness", ["on_time", "late", "missed"]);
+
+export const wakingNightShiftStatus = pgEnum("waking_night_shift_status", [
+  "open",
+  "signed_off",
+]);
+
+/** Every checklist item ends as done, not done (with a reason), or N/A where allowed. */
+export const checklistResultStatus = pgEnum("checklist_result_status", [
+  "done",
+  "not_done",
+  "na",
+]);
+
+export const checklistResultSource = pgEnum("checklist_result_source", ["auto", "manual"]);
+
+/** Mirrors NIGHT_EVENT_TYPES in `src/lib/waking-night/escalation.ts` (a test keeps them in step). */
+export const nightEventType = pgEnum("night_event_type", [
+  "emergency_repair",
+  "accident_incident",
+  "anti_social_behaviour",
+  "serious_incident",
+  "customer_unwell",
+  "staff_threatened",
+]);
+
+export const nightEventSeverity = pgEnum("night_event_severity", ["minor_managed", "serious"]);
+
+export const followUpStatus = pgEnum("follow_up_status", ["open", "done", "not_done", "na"]);
 
 /**
  * `simple` items render as the generic OK/Attention/N/A pill; `resident_welfare`
@@ -360,9 +393,15 @@ export const nightCheckRounds = pgTable(
       .references(() => sites.id, { onDelete: "restrict" }),
     /** The night this round belongs to — the 01:00–07:00 rounds are the next calendar day. */
     checkDate: date("check_date").notNull(),
-    /** One of ROUND_TIMES, e.g. "23:00" — see `src/lib/night-checks.ts`. */
+    /** One of the site's `round_times`, e.g. "23:00" — see `src/lib/site-settings.ts`. */
     roundTime: text("round_time").notNull(),
-    /** Null only for a `missed` row the cron created — no one checked in. */
+    /**
+     * The instant the round was due, fixed when the row is created so a later
+     * schedule change never moves past rounds. Null on rows from before this
+     * column existed.
+     */
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    /** Null for a `scheduled` row, or a `missed` row the cron created — no one checked in. */
     staffId: uuid("staff_id").references(() => staff.id, { onDelete: "set null" }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -370,6 +409,14 @@ export const nightCheckRounds = pgTable(
       onDelete: "set null",
     }),
     status: nightCheckRoundStatus("status").notNull().default("in_progress"),
+    /** Floor numbers walked on this round (floor-level only — no room entry). */
+    floorsCovered: integer("floors_covered").array(),
+    /** H&S issues or resident concerns seen on the round, beyond per-item notes. */
+    observations: text("observations"),
+    /** Set on completion, or by the sweep/sign-off when the round was missed. */
+    timeliness: roundTimeliness("timeliness"),
+    /** Required before sign-off whenever `timeliness` isn't `on_time`. */
+    timelinessReason: text("timeliness_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -667,6 +714,165 @@ export const maintenanceReportUpdates = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Waking night checklist                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Per-service configuration, one row per site. Missing rows (and nulls) fall
+ * back to `DEFAULT_SITE_SETTINGS` in `src/lib/site-settings.ts`, so nothing
+ * here is required for the app to work.
+ */
+export const siteSettings = pgTable("site_settings", {
+  siteId: uuid("site_id")
+    .primaryKey()
+    .references(() => sites.id, { onDelete: "cascade" }),
+  /** Welfare-round slots, "HH:MM", in night order. */
+  roundTimes: text("round_times").array(),
+  roundToleranceMinutes: integer("round_tolerance_minutes"),
+  /** Medication rounds (MEDICATION_ROUNDS keys) the night staff supervise. */
+  eveningMedRounds: text("evening_med_rounds").array(),
+  oohRepairsPhone: text("ooh_repairs_phone"),
+  onCallManagerPhone: text("on_call_manager_phone"),
+  emergencyPhone: text("emergency_phone"),
+  nhsPhone: text("nhs_phone"),
+  policeNonEmergencyPhone: text("police_non_emergency_phone"),
+  hasLoneWorkerDevice: boolean("has_lone_worker_device"),
+  teamEmail: text("team_email"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedByStaffId: uuid("updated_by_staff_id").references(() => staff.id, {
+    onDelete: "set null",
+  }),
+});
+
+/**
+ * One waking-night shift per site per night — the shift header. `shiftDate`
+ * is the evening's date (same convention as `night_check_rounds.check_date`),
+ * which is how rounds and the night handover are found; no FK needed.
+ */
+export const wakingNightShifts = pgTable(
+  "waking_night_shifts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    shiftDate: date("shift_date").notNull(),
+    startedByStaffId: uuid("started_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    status: wakingNightShiftStatus("status").notNull().default("open"),
+    signedOffAt: timestamp("signed_off_at", { withTimezone: true }),
+    signedOffByStaffId: uuid("signed_off_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("waking_night_shift_unique").on(t.siteId, t.shiftDate)],
+);
+
+/**
+ * How each checklist item was resolved. Item definitions live in code
+ * (`src/lib/waking-night/checklist.ts`), keyed by `itemKey`. Manual items get
+ * a row as staff resolve them; auto items are evaluated live and snapshotted
+ * here at sign-off.
+ */
+export const shiftChecklistResults = pgTable(
+  "shift_checklist_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shiftId: uuid("shift_id")
+      .notNull()
+      .references(() => wakingNightShifts.id, { onDelete: "cascade" }),
+    itemKey: text("item_key").notNull(),
+    status: checklistResultStatus("status").notNull(),
+    source: checklistResultSource("source").notNull().default("manual"),
+    /** For auto items: the record that completed it, e.g. ("handover", id). */
+    sourceEntityType: text("source_entity_type"),
+    sourceEntityId: uuid("source_entity_id"),
+    reason: text("reason"),
+    resolvedByStaffId: uuid("resolved_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("shift_checklist_result_unique").on(t.shiftId, t.itemKey)],
+);
+
+/**
+ * Something that happened on the night that needs escalating — logged from
+ * the waking-night page or straight from a round. Its follow-ups are created
+ * from the escalation rules in `src/lib/waking-night/escalation.ts`.
+ */
+export const nightEvents = pgTable(
+  "night_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    shiftId: uuid("shift_id")
+      .notNull()
+      .references(() => wakingNightShifts.id, { onDelete: "cascade" }),
+    /** Set when the event was logged from a welfare round. */
+    roundId: uuid("round_id").references(() => nightCheckRounds.id, { onDelete: "set null" }),
+    type: nightEventType("type").notNull(),
+    severity: nightEventSeverity("severity").notNull().default("minor_managed"),
+    residentId: uuid("resident_id").references(() => residents.id, { onDelete: "set null" }),
+    /** Where it happened — required for an emergency repair. */
+    location: text("location"),
+    description: text("description").notNull(),
+    policeAttended: boolean("police_attended").notNull().default(false),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    loggedByStaffId: uuid("logged_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    /** The urgent building report an emergency repair raised. */
+    maintenanceReportId: uuid("maintenance_report_id").references(() => maintenanceReports.id, {
+      onDelete: "set null",
+    }),
+    /** The night handover the event was written into. */
+    handoverId: uuid("handover_id").references(() => handovers.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("night_events_shift_idx").on(t.shiftId, t.occurredAt)],
+);
+
+/** A task an event created. Every open one blocks shift sign-off. */
+export const shiftFollowUps = pgTable(
+  "shift_follow_ups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shiftId: uuid("shift_id")
+      .notNull()
+      .references(() => wakingNightShifts.id, { onDelete: "cascade" }),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => nightEvents.id, { onDelete: "cascade" }),
+    /** A FollowUpSpec kind, e.g. "call_ooh_repairs". */
+    kind: text("kind").notNull(),
+    label: text("label").notNull(),
+    allowNa: boolean("allow_na").notNull().default(false),
+    /** Options to pick from when done, e.g. ["999", "111"]. */
+    choices: text("choices").array(),
+    status: followUpStatus("status").notNull().default("open"),
+    /** Which choice was taken, e.g. "111". */
+    choice: text("choice"),
+    reason: text("reason"),
+    /** Null with a status set means the system completed it. */
+    resolvedByStaffId: uuid("resolved_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    sourceEntityType: text("source_entity_type"),
+    sourceEntityId: uuid("source_entity_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shift_follow_ups_shift_idx").on(t.shiftId)],
+);
+
+/* ------------------------------------------------------------------ */
 /* Rate limiting — brute-force lockout for auth-sensitive actions      */
 /* ------------------------------------------------------------------ */
 
@@ -961,6 +1167,66 @@ export const maintenanceReportUpdatesRelations = relations(
   }),
 );
 
+export const wakingNightShiftsRelations = relations(
+  wakingNightShifts,
+  ({ one, many }) => ({
+    site: one(sites, { fields: [wakingNightShifts.siteId], references: [sites.id] }),
+    startedBy: one(staff, {
+      fields: [wakingNightShifts.startedByStaffId],
+      references: [staff.id],
+      relationName: "wakingNightShiftStartedBy",
+    }),
+    signedOffBy: one(staff, {
+      fields: [wakingNightShifts.signedOffByStaffId],
+      references: [staff.id],
+      relationName: "wakingNightShiftSignedOffBy",
+    }),
+    checklistResults: many(shiftChecklistResults),
+    events: many(nightEvents),
+    followUps: many(shiftFollowUps),
+  }),
+);
+
+export const shiftChecklistResultsRelations = relations(
+  shiftChecklistResults,
+  ({ one }) => ({
+    shift: one(wakingNightShifts, {
+      fields: [shiftChecklistResults.shiftId],
+      references: [wakingNightShifts.id],
+    }),
+    resolvedBy: one(staff, {
+      fields: [shiftChecklistResults.resolvedByStaffId],
+      references: [staff.id],
+    }),
+  }),
+);
+
+export const nightEventsRelations = relations(nightEvents, ({ one, many }) => ({
+  shift: one(wakingNightShifts, {
+    fields: [nightEvents.shiftId],
+    references: [wakingNightShifts.id],
+  }),
+  resident: one(residents, { fields: [nightEvents.residentId], references: [residents.id] }),
+  loggedBy: one(staff, { fields: [nightEvents.loggedByStaffId], references: [staff.id] }),
+  round: one(nightCheckRounds, {
+    fields: [nightEvents.roundId],
+    references: [nightCheckRounds.id],
+  }),
+  followUps: many(shiftFollowUps),
+}));
+
+export const shiftFollowUpsRelations = relations(shiftFollowUps, ({ one }) => ({
+  shift: one(wakingNightShifts, {
+    fields: [shiftFollowUps.shiftId],
+    references: [wakingNightShifts.id],
+  }),
+  event: one(nightEvents, { fields: [shiftFollowUps.eventId], references: [nightEvents.id] }),
+  resolvedBy: one(staff, {
+    fields: [shiftFollowUps.resolvedByStaffId],
+    references: [staff.id],
+  }),
+}));
+
 /* ------------------------------------------------------------------ */
 /* Inferred types                                                      */
 /* ------------------------------------------------------------------ */
@@ -987,6 +1253,11 @@ export type MedicationReasonCode = typeof medicationReasonCodes.$inferSelect;
 export type MedicationAdministration = typeof medicationAdministrations.$inferSelect;
 export type MaintenanceReport = typeof maintenanceReports.$inferSelect;
 export type MaintenanceReportUpdate = typeof maintenanceReportUpdates.$inferSelect;
+export type SiteSettingsRow = typeof siteSettings.$inferSelect;
+export type WakingNightShift = typeof wakingNightShifts.$inferSelect;
+export type ShiftChecklistResult = typeof shiftChecklistResults.$inferSelect;
+export type NightEvent = typeof nightEvents.$inferSelect;
+export type ShiftFollowUp = typeof shiftFollowUps.$inferSelect;
 
 export type StaffRole = (typeof staffRole.enumValues)[number];
 export type ShiftType = (typeof shiftType.enumValues)[number];
@@ -999,3 +1270,6 @@ export type ResidentStatusValue = (typeof residentStatus.enumValues)[number];
 export type MaintenanceStatusValue = (typeof maintenanceStatus.enumValues)[number];
 export type MaintenancePriorityValue = (typeof maintenancePriority.enumValues)[number];
 export type MaintenanceCategoryValue = (typeof maintenanceCategory.enumValues)[number];
+export type RoundTimelinessValue = (typeof roundTimeliness.enumValues)[number];
+export type ChecklistResultStatusValue = (typeof checklistResultStatus.enumValues)[number];
+export type FollowUpStatusValue = (typeof followUpStatus.enumValues)[number];

@@ -50,6 +50,20 @@
       "when": 1790723566413,
       "tag": "0006_zippy_kat_farrell",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791422730860,
+      "tag": "0007_striped_fantastic_four",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791443542184,
+      "tag": "0008_youthful_lester",
+      "breakpoints": true
     }
   ]
 }

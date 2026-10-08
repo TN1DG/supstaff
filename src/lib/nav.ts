@@ -32,6 +32,12 @@ export const NAV: NavSection[] = [
       },
       { title: "Medication", href: "/medication", icon: "Pill", audience: "care" },
       {
+        title: "Waking night",
+        href: "/waking-night",
+        icon: "ClipboardCheck",
+        audience: "care",
+      },
+      {
         title: "Night checks",
         href: "/night-checks",
         icon: "MoonStar",
@@ -81,6 +87,12 @@ export const NAV: NavSection[] = [
         title: "Staff",
         href: "/staff",
         icon: "IdCard",
+        minRole: "manager",
+      },
+      {
+        title: "Service settings",
+        href: "/settings/service",
+        icon: "Settings2",
         minRole: "manager",
       },
       {

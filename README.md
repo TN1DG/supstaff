@@ -17,6 +17,7 @@ Tailwind + shadcn/ui, deployed on Vercel.
 | 2 | Night building checks | **built** |
 | 3 | Full eMAR | **built** |
 | 4 | Building reports + housing officer dashboard | **built** |
+| — | Waking night checklist: welfare rounds, end-of-shift checklist, escalations | **built** |
 | 5 | Salesforce / Saw-it API integration + manager insights | planned |
 
 Full plan: `~/.claude/plans/supstaff-is-an-app-velvet-harbor.md` ·
