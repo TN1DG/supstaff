@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArchiveResidentButton } from "./archive-button";
 import { MedicationsCard } from "./medications-card";
+import { WelfareCard } from "./welfare-card";
 
 export const metadata: Metadata = { title: "Resident" };
 
@@ -100,6 +101,12 @@ export default async function ResidentPage({
             </p>
           </CardContent>
         </Card>
+
+        {resident.status !== "discharged" ? (
+          <div className="lg:col-span-3">
+            <WelfareCard residentId={resident.id} siteId={staff.siteId} canEditPlan={canEdit} />
+          </div>
+        ) : null}
 
         <div className="lg:col-span-3">
           <MedicationsCard

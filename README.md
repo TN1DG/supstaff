@@ -1,8 +1,8 @@
 # Supstaff
 
 A calm, welcoming desktop web app for support staff in a supported-living
-service — handovers, medication (eMAR), night building checks and maintenance
-reports in one place, with every action timestamped and auditable for the
+service — handovers, medication (eMAR), welfare checks, night building checks
+and maintenance reports in one place, with every action timestamped and auditable for the
 manager.
 
 Built with Next.js 16 (App Router) · Drizzle ORM · Neon Postgres · Auth.js ·
@@ -17,6 +17,7 @@ Tailwind + shadcn/ui, deployed on Vercel.
 | 2 | Night building checks | **built** |
 | 3 | Full eMAR | **built** |
 | 4 | Building reports + housing officer dashboard | **built** |
+| 4b | Welfare checks — per-resident plans, configurable escalation rules | **built** |
 | 5 | Salesforce / Saw-it API integration + manager insights | planned |
 
 Full plan: `~/.claude/plans/supstaff-is-an-app-velvet-harbor.md` ·
@@ -68,12 +69,14 @@ Change history: [`docs/PROGRESS.md`](docs/PROGRESS.md)
 | `npm run dev` | Dev server |
 | `npm run build` / `start` | Production build / serve |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | Unit tests (welfare engine, rules, time zones) |
 | `npm run lint` | ESLint |
 | `npm run db:push` | Push schema to the database |
 | `npm run db:generate` | Generate a SQL migration from schema changes |
 | `npm run db:studio` | Drizzle Studio |
 | `npm run seed` | Seed site + manager (`-- --demo` for demo data) |
 | `npm run seed:maintenance` | Seed a housing officer + demo building reports |
+| `npm run seed:welfare` | Publish default welfare rules, plans + demo welfare activity |
 
 ## Roles
 
@@ -81,7 +84,9 @@ Change history: [`docs/PROGRESS.md`](docs/PROGRESS.md)
   residents, templates, medication setup or other staff. Optional engagement
   end-date auto-deactivates the account.
 - **Support officer** — permanent staff. All operational tasks; can edit
-  resident day-to-day info and be a key worker.
+  resident day-to-day info and welfare plans, and be a key worker. The
+  manager can name one as **welfare rules deputy** to edit and publish the
+  service's welfare rules.
 - **Housing officer** — building only. Triage building reports and
   night-check building findings on `/building`; no access to residents,
   handovers, medication or night-check rounds.
@@ -89,7 +94,7 @@ Change history: [`docs/PROGRESS.md`](docs/PROGRESS.md)
   (later) insights. Holds the technical `admin` flag.
 
 Actions that must be legally attributable (handover submit, night-check
-complete, medication sign-off) additionally require a short **signing PIN**
+complete, medication sign-off, publishing welfare rules) additionally require a short **signing PIN**
 so staff can confirm identity quickly on a shared office desktop.
 
 ## Key directories
@@ -102,7 +107,7 @@ src/
     login/ welcome/ denied/     Auth flows
     (app)/                       Authenticated shell + features
       residents/  staff/  audit/  account/  design/
-      handovers/ medication/ night-checks/ maintenance/ building/ insights/
+      handovers/ welfare/ medication/ night-checks/ maintenance/ building/ insights/
     api/auth/  api/cron/outbox/
   proxy.ts       Lightweight auth gate (real checks live in layouts/actions)
 ```

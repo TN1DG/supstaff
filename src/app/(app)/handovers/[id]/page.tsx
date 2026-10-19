@@ -20,6 +20,7 @@ import { SubmitHandoverDialog } from "./submit-dialog";
 import { AddendumDialog } from "./addendum-dialog";
 import { AcknowledgeButton } from "./acknowledge-button";
 import { SalesforcePanel } from "./salesforce-panel";
+import { WelfarePanel } from "./welfare-panel";
 
 export const metadata: Metadata = { title: "Handover" };
 
@@ -224,6 +225,12 @@ export default async function HandoverPage({
         </div>
 
         <div className="space-y-6">
+          <WelfarePanel
+            siteId={staff.siteId}
+            handoverDate={handover.handoverDate}
+            shift={handover.shift}
+          />
+
           {!isDraft ? (
             <SalesforcePanel
               handoverId={id}
