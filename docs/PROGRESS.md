@@ -22,15 +22,131 @@ What changed, why, and how each phase got there. Setup lives in
 | 1 | Handovers | built | [↓](#phase-1--handovers) |
 | 2 | Night building checks | built | [↓](#phase-2--night-building-checks) |
 | 3 | Full eMAR | built | [↓](#phase-3--emar) |
-| 4 | Building reports + housing officer | **built — current** | [↓](#phase-4--building-reports--housing-officer) |
+| 4 | Building reports + housing officer | built | [↓](#phase-4--building-reports--housing-officer) |
+| 4b | Welfare checks | **built — current** | [↓](#phase-4b--welfare-checks) |
 | 5 | Salesforce / Saw-it delivery + manager insights | next | — |
 | — | Maintenance & hardening | ongoing | [↓](#maintenance--hardening) |
 
 ---
 
-## Phase 4 — Building reports + housing officer
+## Phase 4b — Welfare checks
 
-**Started 2026-09-29 · current**
+**Started 2026-10-17 · current**
+
+Responds to the October 2026 organisational email on welfare check
+arrangements in Supported Housing. Spec: EVG-NSHA-SPEC-001, section
+"Welfare checks".
+
+### What changed
+
+**Data** — migration [`drizzle/0007_welfare_checks.sql`](../drizzle/0007_welfare_checks.sql),
+tables in [`src/db/schema.ts`](../src/db/schema.ts)
+- `welfare_policy_versions` — each publish of a service's rules; never updated.
+- `resident_welfare_plans` — one per resident: tier, ways to check, notes,
+  resident involved, last reviewed.
+- `welfare_contacts` — every check (seen / contacted / no response), with
+  when it happened and when it was logged. Append-only.
+- `welfare_absences` — planned absences; ended or cancelled, never deleted.
+- `welfare_escalations` + `welfare_escalation_actions` — one per overdue
+  episode staff acted on, pinned to the rules version in force when opened.
+  Partial unique index: one open escalation per resident.
+- `staff.welfare_rules_deputy` — a support officer who can edit the rules.
+
+**Logic** (pure, unit-tested)
+- Status engine — [`src/lib/welfare-engine.ts`](../src/lib/welfare-engine.ts).
+- Rules shape, organisation guardrails, plain-language descriptions,
+  organisation default — [`src/lib/welfare-policy.ts`](../src/lib/welfare-policy.ts).
+- Rebuild state at any moment from the records —
+  [`src/lib/welfare-snapshot.ts`](../src/lib/welfare-snapshot.ts).
+- Site time zone helpers (typed "03:10", datetime-local, shift windows) —
+  [`src/lib/zoned-time.ts`](../src/lib/zoned-time.ts), [`src/lib/welfare.ts`](../src/lib/welfare.ts).
+- `npm test` — 73 tests (`node:test` via `tsx`, no new dependency).
+
+**Writes** — [`src/lib/welfare-write.ts`](../src/lib/welfare-write.ts),
+[`welfare/actions.ts`](../src/app/(app)/welfare/actions.ts)
+- Every write locks the resident row (`SELECT … FOR UPDATE`) first and
+  reads the clock *after* the lock, so it sees everything committed before.
+- Logging seen/contacted closes a running escalation — unless, logged late,
+  it still leaves them overdue; "seen" ends a planned absence; "no response"
+  while overdue opens an escalation.
+- Escalation actions carry the last check the page knew about and are
+  refused if the resident has been logged since.
+- Checks and escalation actions queue a Salesforce outbox row
+  (`welfare_contact`, `welfare_escalation_action`) in the same transaction.
+
+**Screens**
+- `/welfare` — board, most urgent first, auto-refreshes every minute.
+  Escalation checklist with step times and instructions, log check, record
+  step, planned absences — [`welfare/page.tsx`](../src/app/(app)/welfare/page.tsx),
+  [`welfare-row.tsx`](../src/app/(app)/welfare/welfare-row.tsx).
+- `/welfare/rules` — current rules, any past version (`?v=`), history,
+  organisation limits. `/welfare/rules/edit` — editor with live guardrail
+  checks, a replay of the last 24 hours, and PIN-signed publish.
+- Resident page — welfare card (status, plan, last 7 days);
+  `/residents/[id]/welfare` — plan form.
+- Handover page — "Welfare this shift" panel, worked out from the records.
+- Today page — welfare card; sidebar entry; staff form deputy checkbox.
+
+**Tooling**
+- `npm run seed:welfare` — publishes the default rules, plans for every
+  resident but one, and demo activity in every state —
+  [`scripts/seed-welfare.ts`](../scripts/seed-welfare.ts).
+
+### Why
+
+- **Status is derived, never stored** (spec decision D1). Vercel Hobby crons
+  run once a day, so a stored "current step" would be wrong most of the night.
+  Rebuilding from timestamps on every read is always right; a scheduler is
+  only needed once something must happen with nobody looking (automatic
+  alerts to on-call).
+- **Stale pages are refused, not merged** (D2). If Sam logs Aisha as seen
+  while Lee has the "Inform on-call" form open, Lee's action is refused and
+  Lee is told to stand on-call down. Logging a sighting never conflicts.
+- **An absence never hides an overdue resident.** It only pauses the clock
+  if they weren't already due when it started, and one can't be added for
+  someone overdue — they have to be seen or contacted first.
+- **Pinned escalations.** A publish at 3am mustn't change an escalation that
+  is already running, and an incident review must be able to see the rules
+  that applied.
+- **Two step-time styles, one meaning.** Managers copy timings from a Missing
+  Persons Procedure written as "since last seen" or "after overdue"; both are
+  converted to minutes after due, and the guardrails apply to that.
+- **Guardrails in code, rules in the database.** Service managers own their
+  rules; anything inside the organisation limits goes live on publish, no
+  approval queue. Limits change by deploy. Current values are placeholders.
+- **Times in the site's zone.** The server runs in UTC; every welfare time is
+  stored as an instant and shown or typed in `sites.timezone`. Intervals are
+  real elapsed time, so the 25 Oct clock change can't stretch or shrink one.
+- **Seeded demo rows skip the outbox** so they can never reach Salesforce.
+
+### How it progressed
+
+| Date | Step |
+| --- | --- |
+| 2026-10-13 | Brainstormed from the organisational email; welfare checks are per person, separate from night-check floor patrols. |
+| 2026-10-17 | Configurable timings, owned by service managers, inside organisation guardrails. Spec section written. |
+| 2026-10-19 | D1 (derive on read) and D2 (stale-page refusal + row lock + partial unique index) decided. Built schema, engine, writes, screens, seed. |
+| 2026-10-19 | `typecheck`, `lint`, `test` green; Turbopack and webpack builds green. Migration applied on top of 0000–0006 on Postgres 16. |
+| 2026-10-19 | Independent code review. Fixed: clock read before the lock (a "no response" could miss a sighting committed a moment earlier); an absence starting after the due time hid an overdue resident; a late-logged sighting closed an escalation while still overdue; typed times in the repeated hour on clocks-back night; a refused action could leave an escalation open; plan save vs rules publish race; ordering by step severity across tiers. Race and late-sighting fixes verified against Postgres with concurrent transactions. |
+| 2026-10-19 | Browser walk-through as support officer, bank staff, deputy and manager: logging, late logging, absences, plan set-up, rules publish, guardrail block, stale publish refused, handover panel. Two staff recording the first step at the same moment → one escalation, two actions. Stale "Inform on-call" refused after the resident was found. |
+
+### Follow-ups
+
+- [ ] Replace placeholder guardrails (`ORG_GUARDRAILS`) and the default
+      rules with the Missing Persons Procedure timescales, and name the
+      central owner.
+- [ ] Confirm the In-Form welfare record type and map the outbox payloads
+      in Phase 5.
+- [ ] Shift windows for the handover panel are fixed constants
+      (`SHIFT_WINDOWS`, 07–15 / 15–23 / 23–07), same posture as `ROUND_TIMES`.
+- [ ] A tablet layout for logging on the floor (spec risk: checks logged late
+      at the desk).
+- [ ] Optional: notify on-call automatically — needs a scheduler (see Why).
+
+---
+
+<details>
+<summary><strong>Phase 4 — Building reports + housing officer</strong> · built 2026-09-30</summary>
 
 ### What changed
 
@@ -140,7 +256,7 @@ What changed, why, and how each phase got there. Setup lives in
       `ROUND_TIMES`).
 - [ ] Optional: notify the housing officer (email via outbox) on `urgent` reports.
 
----
+</details>
 
 <details>
 <summary><strong>Phase 3 — eMAR</strong> · built 2026-09-16</summary>

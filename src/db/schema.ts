@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -10,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -118,6 +120,30 @@ export const maintenanceCategory = pgEnum("maintenance_category", [
   "other",
 ]);
 
+/** `seen` and `contacted` reset a resident's welfare clock; `no_response` never does. */
+export const welfareOutcome = pgEnum("welfare_outcome", [
+  "seen",
+  "contacted",
+  "no_response",
+]);
+
+export const welfareMethod = pgEnum("welfare_method", [
+  "in_person",
+  "door_knock",
+  "phone",
+  "message",
+  "other",
+]);
+
+/** What an escalation step asks for — and what staff record they did. */
+export const welfareEscalationAction = pgEnum("welfare_escalation_action", [
+  "retry_contact",
+  "inform_on_call",
+  "inform_manager",
+  "report_missing",
+  "other",
+]);
+
 /* ------------------------------------------------------------------ */
 /* Core                                                                */
 /* ------------------------------------------------------------------ */
@@ -145,6 +171,11 @@ export const staff = pgTable("staff", {
   active: boolean("active").notNull().default(true),
   /** For bank staff — account auto-deactivates after this date. */
   engagedUntil: date("engaged_until"),
+  /**
+   * A support officer the manager has named as cover for the service's
+   * welfare rules — can edit and publish them like the manager.
+   */
+  welfareRulesDeputy: boolean("welfare_rules_deputy").notNull().default(false),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -667,6 +698,213 @@ export const maintenanceReportUpdates = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Welfare checks (Phase 4b)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One row per publish of a service's welfare rules — never updated. The
+ * current rules are the highest `version` for the site. `config` is a
+ * `WelfarePolicyConfig` (src/lib/welfare-policy.ts): risk tiers, each with a
+ * check interval and escalation steps. Escalations point at the version they
+ * were opened under, so a later publish never changes one already running.
+ */
+export const welfarePolicyVersions = pgTable(
+  "welfare_policy_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    config: jsonb("config").notNull(),
+    changeNote: text("change_note").notNull(),
+    reviewDueOn: date("review_due_on").notNull(),
+    publishedByStaffId: uuid("published_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("welfare_policy_site_version_unique").on(t.siteId, t.version)],
+);
+
+/** How each resident is checked — one plan per resident, set up by their key worker. */
+export const residentWelfarePlans = pgTable(
+  "resident_welfare_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    residentId: uuid("resident_id")
+      .notNull()
+      .unique("resident_welfare_plan_resident_unique")
+      .references(() => residents.id, { onDelete: "restrict" }),
+    /** A tier `key` in the site's current welfare rules. */
+    tierKey: text("tier_key").notNull(),
+    contactMethods: welfareMethod("contact_methods")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::welfare_method[]`),
+    howToCheck: text("how_to_check"),
+    /** Whether the resident helped agree the plan — the email's "customer involvement". */
+    residentInvolved: boolean("resident_involved").notNull().default(false),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    /** The clock for a resident with no logged check yet counts from here. */
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedByStaffId: uuid("updated_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("resident_welfare_plans_site_idx").on(t.siteId)],
+);
+
+/**
+ * Every logged welfare check — append-only. `happenedAt` is when it
+ * happened (staff can log up to a few hours after the fact); `createdAt` is
+ * when it was logged. Both are kept.
+ */
+export const welfareContacts = pgTable(
+  "welfare_contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    residentId: uuid("resident_id")
+      .notNull()
+      .references(() => residents.id, { onDelete: "restrict" }),
+    outcome: welfareOutcome("outcome").notNull(),
+    method: welfareMethod("method").notNull(),
+    happenedAt: timestamp("happened_at", { withTimezone: true }).notNull(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "restrict" }),
+    note: text("note"),
+    /** How late the check was against the resident's due time, when it was logged. Null = not overdue. */
+    overdueMinutes: integer("overdue_minutes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("welfare_contacts_resident_happened_idx").on(t.residentId, t.happenedAt.desc()),
+    index("welfare_contacts_site_created_idx").on(t.siteId, t.createdAt.desc()),
+  ],
+);
+
+/** A planned absence pauses the resident's clock until `expectedBackAt`. */
+export const welfareAbsences = pgTable(
+  "welfare_absences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    residentId: uuid("resident_id")
+      .notNull()
+      .references(() => residents.id, { onDelete: "restrict" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    expectedBackAt: timestamp("expected_back_at", { withTimezone: true }).notNull(),
+    reason: text("reason"),
+    /** Set when the resident is back (logged as seen) — the clock restarts from that check. */
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endedByStaffId: uuid("ended_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    /** An absence that didn't happen. Ignored everywhere, kept for the record. */
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdByStaffId: uuid("created_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("welfare_absences_resident_starts_idx").on(t.residentId, t.startsAt.desc())],
+);
+
+/**
+ * One overdue episode that staff acted on. Opened when someone first logs
+ * "no response" or an escalation action for an overdue resident, and pinned
+ * to the rules version and due time in force at that moment. Closed by the
+ * next seen/contacted check. Its current step is never stored — it's worked
+ * out on every read (src/lib/welfare-engine.ts).
+ */
+export const welfareEscalations = pgTable(
+  "welfare_escalations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "restrict" }),
+    residentId: uuid("resident_id")
+      .notNull()
+      .references(() => residents.id, { onDelete: "restrict" }),
+    // FKs whose generated names pass Postgres's 63-character limit are
+    // declared below with short explicit names instead of `.references()`.
+    policyVersionId: uuid("policy_version_id").notNull(),
+    tierKey: text("tier_key").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+    openedByStaffId: uuid("opened_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByStaffId: uuid("resolved_by_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    resolvedByContactId: uuid("resolved_by_contact_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // At most one open escalation per resident — two staff starting one at
+    // the same moment can't create two. The row lock in the actions makes
+    // this serial already; the index is the backstop.
+    uniqueIndex("welfare_escalation_one_open_idx")
+      .on(t.residentId)
+      .where(sql`${t.resolvedAt} is null`),
+    index("welfare_escalations_site_opened_idx").on(t.siteId, t.openedAt.desc()),
+    foreignKey({
+      name: "welfare_escalations_policy_version_fk",
+      columns: [t.policyVersionId],
+      foreignColumns: [welfarePolicyVersions.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "welfare_escalations_resolved_by_contact_fk",
+      columns: [t.resolvedByContactId],
+      foreignColumns: [welfareContacts.id],
+    }).onDelete("set null"),
+  ],
+);
+
+/** What staff did during an escalation — append-only. */
+export const welfareEscalationActions = pgTable(
+  "welfare_escalation_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    escalationId: uuid("escalation_id").notNull(),
+    /** The step id in the escalation's pinned rules; null for an action outside the steps. */
+    stepId: text("step_id"),
+    action: welfareEscalationAction("action").notNull(),
+    note: text("note"),
+    happenedAt: timestamp("happened_at", { withTimezone: true }).notNull(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("welfare_escalation_actions_escalation_idx").on(t.escalationId, t.happenedAt),
+    foreignKey({
+      name: "welfare_escalation_actions_escalation_fk",
+      columns: [t.escalationId],
+      foreignColumns: [welfareEscalations.id],
+    }).onDelete("restrict"),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Rate limiting — brute-force lockout for auth-sensitive actions      */
 /* ------------------------------------------------------------------ */
 
@@ -961,6 +1199,83 @@ export const maintenanceReportUpdatesRelations = relations(
   }),
 );
 
+export const welfarePolicyVersionsRelations = relations(
+  welfarePolicyVersions,
+  ({ one }) => ({
+    site: one(sites, { fields: [welfarePolicyVersions.siteId], references: [sites.id] }),
+    publishedBy: one(staff, {
+      fields: [welfarePolicyVersions.publishedByStaffId],
+      references: [staff.id],
+    }),
+  }),
+);
+
+export const residentWelfarePlansRelations = relations(residentWelfarePlans, ({ one }) => ({
+  resident: one(residents, {
+    fields: [residentWelfarePlans.residentId],
+    references: [residents.id],
+  }),
+  updatedBy: one(staff, {
+    fields: [residentWelfarePlans.updatedByStaffId],
+    references: [staff.id],
+  }),
+}));
+
+export const welfareContactsRelations = relations(welfareContacts, ({ one }) => ({
+  resident: one(residents, {
+    fields: [welfareContacts.residentId],
+    references: [residents.id],
+  }),
+  staff: one(staff, { fields: [welfareContacts.staffId], references: [staff.id] }),
+}));
+
+export const welfareAbsencesRelations = relations(welfareAbsences, ({ one }) => ({
+  resident: one(residents, {
+    fields: [welfareAbsences.residentId],
+    references: [residents.id],
+  }),
+  createdBy: one(staff, {
+    fields: [welfareAbsences.createdByStaffId],
+    references: [staff.id],
+  }),
+}));
+
+export const welfareEscalationsRelations = relations(welfareEscalations, ({ one, many }) => ({
+  resident: one(residents, {
+    fields: [welfareEscalations.residentId],
+    references: [residents.id],
+  }),
+  policyVersion: one(welfarePolicyVersions, {
+    fields: [welfareEscalations.policyVersionId],
+    references: [welfarePolicyVersions.id],
+  }),
+  openedBy: one(staff, {
+    fields: [welfareEscalations.openedByStaffId],
+    references: [staff.id],
+    relationName: "welfareEscalationOpenedBy",
+  }),
+  resolvedBy: one(staff, {
+    fields: [welfareEscalations.resolvedByStaffId],
+    references: [staff.id],
+    relationName: "welfareEscalationResolvedBy",
+  }),
+  actions: many(welfareEscalationActions),
+}));
+
+export const welfareEscalationActionsRelations = relations(
+  welfareEscalationActions,
+  ({ one }) => ({
+    escalation: one(welfareEscalations, {
+      fields: [welfareEscalationActions.escalationId],
+      references: [welfareEscalations.id],
+    }),
+    staff: one(staff, {
+      fields: [welfareEscalationActions.staffId],
+      references: [staff.id],
+    }),
+  }),
+);
+
 /* ------------------------------------------------------------------ */
 /* Inferred types                                                      */
 /* ------------------------------------------------------------------ */
@@ -987,6 +1302,12 @@ export type MedicationReasonCode = typeof medicationReasonCodes.$inferSelect;
 export type MedicationAdministration = typeof medicationAdministrations.$inferSelect;
 export type MaintenanceReport = typeof maintenanceReports.$inferSelect;
 export type MaintenanceReportUpdate = typeof maintenanceReportUpdates.$inferSelect;
+export type WelfarePolicyVersion = typeof welfarePolicyVersions.$inferSelect;
+export type ResidentWelfarePlan = typeof residentWelfarePlans.$inferSelect;
+export type WelfareContact = typeof welfareContacts.$inferSelect;
+export type WelfareAbsence = typeof welfareAbsences.$inferSelect;
+export type WelfareEscalation = typeof welfareEscalations.$inferSelect;
+export type WelfareEscalationActionRow = typeof welfareEscalationActions.$inferSelect;
 
 export type StaffRole = (typeof staffRole.enumValues)[number];
 export type ShiftType = (typeof shiftType.enumValues)[number];
@@ -999,3 +1320,6 @@ export type ResidentStatusValue = (typeof residentStatus.enumValues)[number];
 export type MaintenanceStatusValue = (typeof maintenanceStatus.enumValues)[number];
 export type MaintenancePriorityValue = (typeof maintenancePriority.enumValues)[number];
 export type MaintenanceCategoryValue = (typeof maintenanceCategory.enumValues)[number];
+export type WelfareOutcomeValue = (typeof welfareOutcome.enumValues)[number];
+export type WelfareMethodValue = (typeof welfareMethod.enumValues)[number];
+export type WelfareEscalationActionValue = (typeof welfareEscalationAction.enumValues)[number];

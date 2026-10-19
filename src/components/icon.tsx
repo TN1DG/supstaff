@@ -10,6 +10,7 @@ import {
   ScrollText,
   ClipboardList,
   Building2,
+  HeartHandshake,
   type LucideIcon,
 } from "lucide-react";
 
@@ -25,6 +26,7 @@ const ICONS: Record<string, LucideIcon> = {
   ScrollText,
   ClipboardList,
   Building2,
+  HeartHandshake,
 };
 
 export function Icon({

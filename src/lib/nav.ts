@@ -30,6 +30,12 @@ export const NAV: NavSection[] = [
         icon: "NotebookPen",
         audience: "care",
       },
+      {
+        title: "Welfare checks",
+        href: "/welfare",
+        icon: "HeartHandshake",
+        audience: "care",
+      },
       { title: "Medication", href: "/medication", icon: "Pill", audience: "care" },
       {
         title: "Night checks",

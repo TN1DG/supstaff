@@ -18,6 +18,7 @@ const baseSchema = z.object({
   phone: z.string().trim().max(40).optional().or(z.literal("")),
   engagedUntil: z.string().date().optional().or(z.literal("")),
   isAdmin: z.union([z.literal("on"), z.null(), z.literal("")]).optional(),
+  welfareRulesDeputy: z.union([z.literal("on"), z.null(), z.literal("")]).optional(),
 });
 
 export type StaffFormState = {
@@ -35,6 +36,7 @@ function parse(formData: FormData) {
     phone: formData.get("phone") ?? "",
     engagedUntil: formData.get("engagedUntil") ?? "",
     isAdmin: formData.get("isAdmin"),
+    welfareRulesDeputy: formData.get("welfareRulesDeputy"),
   });
 }
 
@@ -74,6 +76,10 @@ export async function createStaff(
           phone: data.phone || null,
           engagedUntil: data.role === "bank_staff" ? data.engagedUntil || null : null,
           isAdmin: data.isAdmin === "on",
+          // Only a support officer can be the welfare rules deputy — the
+          // manager already edits the rules, and bank staff can't.
+          welfareRulesDeputy:
+            data.role === "support_officer" && data.welfareRulesDeputy === "on",
           passwordHash,
           mustChangePassword: true,
         })
@@ -115,6 +121,7 @@ export async function updateStaff(
     phone: formData.get("phone") ?? "",
     engagedUntil: formData.get("engagedUntil") ?? "",
     isAdmin: formData.get("isAdmin"),
+    welfareRulesDeputy: formData.get("welfareRulesDeputy"),
     active: formData.get("active"),
   });
   if (!parsed.success) {
@@ -160,6 +167,8 @@ export async function updateStaff(
           engagedUntil:
             data.role === "bank_staff" ? data.engagedUntil || null : null,
           isAdmin: data.isAdmin === "on",
+          welfareRulesDeputy:
+            data.role === "support_officer" && data.welfareRulesDeputy === "on",
           active: data.active === "on",
           updatedAt: new Date(),
         })
@@ -175,11 +184,14 @@ export async function updateStaff(
             role: existing.role,
             active: existing.active,
             isAdmin: existing.isAdmin,
+            welfareRulesDeputy: existing.welfareRulesDeputy,
           },
           after: {
             role: data.role,
             active: data.active === "on",
             isAdmin: data.isAdmin === "on",
+            welfareRulesDeputy:
+              data.role === "support_officer" && data.welfareRulesDeputy === "on",
           },
         },
         ctx,
