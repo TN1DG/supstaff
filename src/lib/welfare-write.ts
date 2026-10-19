@@ -127,15 +127,21 @@ async function openEscalation(
 export type LogContactResult = {
   contactId: string;
   closedEscalation: boolean;
+  /** A late-logged sighting that still leaves them overdue — the escalation stays open. */
+  stillOverdue: boolean;
   openedEscalation: boolean;
   endedAbsence: boolean;
 };
 
 /**
  * Log one welfare check. A seen/contacted check that moves the clock
- * forward closes any running escalation; "seen" also ends a planned
- * absence that started before it. A "no response" for someone overdue
- * opens an escalation if none is running.
+ * forward closes any running escalation — unless, logged late, it still
+ * leaves them overdue. "Seen" also ends a planned absence that started
+ * before it. A "no response" for someone overdue opens an escalation if
+ * none is running.
+ *
+ * `now` must be read after `lockResident`, so everything committed before
+ * the lock is visible to the snapshot (an earlier `now` would hide it).
  */
 export async function logContactInTx(
   tx: Transaction,
@@ -180,6 +186,7 @@ export async function logContactInTx(
   const result: LogContactResult = {
     contactId: contact.id,
     closedEscalation: false,
+    stillOverdue: false,
     openedEscalation: false,
     endedAbsence: false,
   };
@@ -188,7 +195,14 @@ export async function logContactInTx(
   const movesClock =
     resets && (!snap.lastReset || happenedAt.getTime() > snap.lastReset.happenedAt.getTime());
 
-  if (movesClock && snap.escalation) {
+  // Judged on the escalation's own (pinned) interval: "seen at 08:30" logged
+  // at 13:40 on a 4-hour tier still leaves them overdue, so it stays open.
+  const escTier = snap.escalation?.tier ?? snap.state.tier;
+  const stillOverdue =
+    !!escTier && now.getTime() >= happenedAt.getTime() + escTier.intervalMinutes * 60_000;
+  if (movesClock && snap.escalation && stillOverdue) result.stillOverdue = true;
+
+  if (movesClock && snap.escalation && !stillOverdue) {
     await tx
       .update(welfareEscalations)
       .set({
@@ -295,7 +309,9 @@ export type RecordActionResult =
  * Record what staff did for an overdue resident. Opens the escalation if
  * this is the first action. `stepId` must be one of the escalation's own
  * steps (or null for "something else"); the action type always comes from
- * the step, never from the form.
+ * the step, never from the form. `rulesBasis` is the rules version the page
+ * showed — refused if the steps have changed since. Everything is checked
+ * before anything is written, so a refusal leaves no partial escalation.
  */
 export async function recordActionInTx(
   tx: Transaction,
@@ -306,22 +322,25 @@ export async function recordActionInTx(
     snap: ResidentSnapshot;
     stepId: string | null;
     note: string | null;
+    rulesBasis: string;
     happenedAt: Date;
     now: Date;
     ctx: AuditCtx;
   },
 ): Promise<RecordActionResult> {
-  const { actor, resident, facts, snap, stepId, note, happenedAt, now, ctx } = input;
+  const { actor, resident, facts, snap, stepId, note, rulesBasis, happenedAt, now, ctx } = input;
 
-  let escalationId = snap.escalation?.id ?? null;
-  const tier = snap.escalation?.tier ?? snap.state.tier;
-  if (!escalationId) {
-    if (snap.state.kind !== "overdue" && snap.state.kind !== "escalating") {
-      return { ok: false, error: `${residentName(resident)} isn't overdue any more. Refresh the board.` };
-    }
-    escalationId = await openEscalation(tx, facts, snap, actor, now, ctx);
+  if (!snap.escalation && snap.state.kind !== "overdue" && snap.state.kind !== "escalating") {
+    return { ok: false, error: `${residentName(resident)} isn't overdue any more. Refresh the board.` };
+  }
+  if (rulesBasis !== (snap.rulesVersionId ?? "none")) {
+    return {
+      ok: false,
+      error: "The welfare rules changed while you had this open. Nothing was recorded — refresh the board.",
+    };
   }
 
+  const tier = snap.escalation?.tier ?? snap.state.tier;
   let action: WelfareEscalationActionValue = "other";
   let instruction: string | null = null;
   if (stepId) {
@@ -332,6 +351,8 @@ export async function recordActionInTx(
   } else if (!note) {
     return { ok: false, error: "Say what you did." };
   }
+
+  const escalationId = snap.escalation?.id ?? (await openEscalation(tx, facts, snap, actor, now, ctx));
 
   const [row] = await tx
     .insert(welfareEscalationActions)

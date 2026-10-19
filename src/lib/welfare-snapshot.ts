@@ -124,6 +124,12 @@ export type ResidentSnapshot = {
   lastCheck: FactsContact | null;
   absence: FactsAbsence | null;
   upcomingAbsence: FactsAbsence | null;
+  /**
+   * The rules version behind the steps on screen — the running escalation's
+   * pinned version, else the current one. Sent back with an escalation
+   * action so a page showing old rules can't record against new ones.
+   */
+  rulesVersionId: string | null;
   escalation:
     | (FactsEscalation & {
         version: FactsVersion | null;
@@ -223,6 +229,7 @@ export function snapshotAt(
         lastCheck,
         absence,
         upcomingAbsence,
+        rulesVersionId: esc ? esc.policyVersionId : current?.id ?? null,
         escalation: esc
           ? {
               ...esc,

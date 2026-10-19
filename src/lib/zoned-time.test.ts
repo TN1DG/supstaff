@@ -47,6 +47,15 @@ describe("a typed time means the most recent time the clock showed it", () => {
     assert.equal(iso(mostRecentWallTime("00:11", now, LONDON)), "2026-10-20T23:11:00.000Z");
   });
 
+  it("in the repeated hour, a typed time means the latest one that has happened", () => {
+    // 01:20 GMT on 25 Oct (the second time the clock reads 01:xx).
+    const second = new Date("2026-10-25T01:20:00Z");
+    assert.equal(iso(mostRecentWallTime("01:10", second, LONDON)), "2026-10-25T01:10:00.000Z");
+    // 01:20 BST (the first pass): the GMT 01:10 hasn't happened yet.
+    const first = new Date("2026-10-25T00:20:00Z");
+    assert.equal(iso(mostRecentWallTime("01:10", first, LONDON)), "2026-10-25T00:10:00.000Z");
+  });
+
   it("rejects what isn't HH:MM", () => {
     assert.equal(mostRecentWallTime("24:00", now, LONDON), null);
     assert.equal(mostRecentWallTime("3:10", now, LONDON), null);

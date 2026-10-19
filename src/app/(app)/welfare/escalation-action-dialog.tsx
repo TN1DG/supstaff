@@ -41,11 +41,14 @@ export function EscalationActionDialog({
   residentName,
   steps,
   basis,
+  rulesBasis,
 }: {
   residentId: string;
   residentName: string;
   steps: DialogStep[];
   basis: string;
+  /** The rules version whose steps this dialog lists. */
+  rulesBasis: string;
 }) {
   const router = useRouter();
   const firstOpen = steps.find((s) => s.reached && !s.done) ?? steps.find((s) => !s.done);
@@ -115,6 +118,7 @@ export function EscalationActionDialog({
             }
           >
             <input type="hidden" name="basis" value={basis} />
+            <input type="hidden" name="rulesBasis" value={rulesBasis} />
             <DialogHeader>
               <DialogTitle>Record an escalation step</DialogTitle>
               <DialogDescription>{residentName}</DialogDescription>

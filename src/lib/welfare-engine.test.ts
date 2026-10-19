@@ -241,6 +241,21 @@ describe("planned absences", () => {
     assert.deepEqual(s.dueAt, plus(phoned, 180));
   });
 
+  it("an absence that starts after they were already due doesn't hide them", () => {
+    // Due 21:00 (seen 18:00, 3h tier); absence planned from 22:00.
+    const late = { startsAt: plus(SEEN, 240), expectedBackAt: plus(SEEN, 720), endedAt: null, cancelledAt: null };
+    const s = computeWelfareState(input({ absences: [late], now: plus(SEEN, 300) }));
+    assert.equal(s.kind, "escalating");
+    assert.deepEqual(s.dueAt, plus(SEEN, 180));
+    assert.equal(s.awayUntil, null);
+  });
+
+  it("an absence that starts while they're due soon still pauses the clock", () => {
+    const leaving = { startsAt: plus(SEEN, 150), expectedBackAt: plus(SEEN, 720), endedAt: null, cancelledAt: null };
+    const s = computeWelfareState(input({ absences: [leaving], now: plus(SEEN, 300) }));
+    assert.equal(s.kind, "away");
+  });
+
   it("future, cancelled and ended absences are ignored", () => {
     const future = { ...absence, startsAt: plus(SEEN, 60), expectedBackAt: plus(SEEN, 600) };
     const cancelled = { ...absence, startsAt: SEEN, cancelledAt: SEEN };
@@ -308,6 +323,29 @@ describe("overdue minutes when a check is logged", () => {
 });
 
 describe("board order", () => {
+  it("orders escalations by the step reached, not its position on the tier", () => {
+    // Five-step tier at step 4 (inform manager) vs three-step tier at report missing.
+    const five: PolicyTier = {
+      ...STEPPED,
+      key: "five",
+      steps: [
+        { id: "1", afterMinutes: 0, action: "retry_contact", instruction: "" },
+        { id: "2", afterMinutes: 10, action: "retry_contact", instruction: "" },
+        { id: "3", afterMinutes: 20, action: "retry_contact", instruction: "" },
+        { id: "4", afterMinutes: 30, action: "inform_manager", instruction: "" },
+        { id: "5", afterMinutes: 600, action: "report_missing", instruction: "" },
+      ],
+    };
+    const due = plus(SEEN, 180);
+    const atManager = computeWelfareState(
+      input({ policy: { tiers: [five] }, plan: { tierKey: "five", startedAt: SEEN }, now: plus(due, 35) }),
+    );
+    const atMissing = computeWelfareState(input({ now: plus(due, 241) }));
+    assert.equal(atManager.currentStepIndex, 3);
+    assert.equal(atMissing.currentStepIndex, 2);
+    assert.deepEqual([atManager, atMissing].sort(compareWelfare), [atMissing, atManager]);
+  });
+
   it("most urgent first; two residents on leave compare equal, not NaN", () => {
     const due = plus(SEEN, 180);
     const states = [

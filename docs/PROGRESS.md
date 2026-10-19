@@ -60,13 +60,15 @@ tables in [`src/db/schema.ts`](../src/db/schema.ts)
   [`src/lib/welfare-snapshot.ts`](../src/lib/welfare-snapshot.ts).
 - Site time zone helpers (typed "03:10", datetime-local, shift windows) —
   [`src/lib/zoned-time.ts`](../src/lib/zoned-time.ts), [`src/lib/welfare.ts`](../src/lib/welfare.ts).
-- `npm test` — 69 tests (`node:test` via `tsx`, no new dependency).
+- `npm test` — 73 tests (`node:test` via `tsx`, no new dependency).
 
 **Writes** — [`src/lib/welfare-write.ts`](../src/lib/welfare-write.ts),
 [`welfare/actions.ts`](../src/app/(app)/welfare/actions.ts)
-- Every write locks the resident row (`SELECT … FOR UPDATE`) first.
-- Logging seen/contacted closes a running escalation; "seen" ends a planned
-  absence; "no response" while overdue opens an escalation.
+- Every write locks the resident row (`SELECT … FOR UPDATE`) first and
+  reads the clock *after* the lock, so it sees everything committed before.
+- Logging seen/contacted closes a running escalation — unless, logged late,
+  it still leaves them overdue; "seen" ends a planned absence; "no response"
+  while overdue opens an escalation.
 - Escalation actions carry the last check the page knew about and are
   refused if the resident has been logged since.
 - Checks and escalation actions queue a Salesforce outbox row
@@ -100,6 +102,9 @@ tables in [`src/db/schema.ts`](../src/db/schema.ts)
 - **Stale pages are refused, not merged** (D2). If Sam logs Aisha as seen
   while Lee has the "Inform on-call" form open, Lee's action is refused and
   Lee is told to stand on-call down. Logging a sighting never conflicts.
+- **An absence never hides an overdue resident.** It only pauses the clock
+  if they weren't already due when it started, and one can't be added for
+  someone overdue — they have to be seen or contacted first.
 - **Pinned escalations.** A publish at 3am mustn't change an escalation that
   is already running, and an incident review must be able to see the rules
   that applied.
@@ -122,6 +127,7 @@ tables in [`src/db/schema.ts`](../src/db/schema.ts)
 | 2026-10-17 | Configurable timings, owned by service managers, inside organisation guardrails. Spec section written. |
 | 2026-10-19 | D1 (derive on read) and D2 (stale-page refusal + row lock + partial unique index) decided. Built schema, engine, writes, screens, seed. |
 | 2026-10-19 | `typecheck`, `lint`, `test` green; Turbopack and webpack builds green. Migration applied on top of 0000–0006 on Postgres 16. |
+| 2026-10-19 | Independent code review. Fixed: clock read before the lock (a "no response" could miss a sighting committed a moment earlier); an absence starting after the due time hid an overdue resident; a late-logged sighting closed an escalation while still overdue; typed times in the repeated hour on clocks-back night; a refused action could leave an escalation open; plan save vs rules publish race; ordering by step severity across tiers. Race and late-sighting fixes verified against Postgres with concurrent transactions. |
 | 2026-10-19 | Browser walk-through as support officer, bank staff, deputy and manager: logging, late logging, absences, plan set-up, rules publish, guardrail block, stale publish refused, handover panel. Two staff recording the first step at the same moment → one escalation, two actions. Stale "Inform on-call" refused after the resident was found. |
 
 ### Follow-ups

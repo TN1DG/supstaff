@@ -75,7 +75,7 @@ export async function WelfarePanel({
       <CardContent className="space-y-4 text-sm">
         {quiet ? (
           <p className="text-muted-foreground">
-            No welfare concerns{ongoing ? " so far" : ""} — everyone was seen or contacted on time.
+            No overdue checks, escalations or planned absences{ongoing ? " so far" : ""}.
           </p>
         ) : null}
 

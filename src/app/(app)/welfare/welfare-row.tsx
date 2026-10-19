@@ -34,7 +34,7 @@ function statusDetail(snap: ResidentSnapshot, now: Date, fmt: Fmt): string {
     case "overdue":
       return `Overdue since ${fmt.when(s.dueAt!, now)} · ${durationBetween(s.dueAt!, now)}`;
     case "due_soon":
-      return `Due at ${fmt.time(s.dueAt!)} · in ${durationBetween(now, s.dueAt!)}`;
+      return `Due at ${fmt.when(s.dueAt!, now)} · in ${durationBetween(now, s.dueAt!)}`;
     case "ok":
       return `Next check by ${fmt.when(s.dueAt!, now)}`;
     case "no_plan":
@@ -181,7 +181,7 @@ function EscalationPanel({ snap, now, fmt }: { snap: ResidentSnapshot; now: Date
     id: s.id,
     label: ACTION_LABEL[s.action],
     instruction: s.instruction,
-    timing: s.reached ? `since ${fmt.time(s.at)}` : `from ${fmt.time(s.at)}`,
+    timing: s.reached ? `since ${fmt.when(s.at, now)}` : `from ${fmt.when(s.at, now)}`,
     reached: s.reached,
     done: doneBy(s.id).length > 0,
   }));
@@ -245,8 +245,8 @@ function EscalationPanel({ snap, now, fmt }: { snap: ResidentSnapshot; now: Date
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Clock className="size-3" aria-hidden />
                     {s.reached
-                      ? `since ${fmt.time(s.at)}`
-                      : `from ${fmt.time(s.at)} · in ${durationBetween(now, s.at)}`}
+                      ? `since ${fmt.when(s.at, now)}`
+                      : `from ${fmt.when(s.at, now)} · in ${durationBetween(now, s.at)}`}
                   </span>
                 </p>
                 <p className={cn("mt-0.5", s.reached ? "" : "text-muted-foreground")}>{s.instruction}</p>
@@ -286,6 +286,7 @@ function EscalationPanel({ snap, now, fmt }: { snap: ResidentSnapshot; now: Date
           residentName={snap.name}
           steps={dialogSteps}
           basis={snap.lastReset?.id ?? "none"}
+          rulesBasis={snap.rulesVersionId ?? "none"}
         />
         <LogCheckDialog
           residentId={snap.resident.id}

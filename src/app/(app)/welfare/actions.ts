@@ -16,6 +16,7 @@ import {
   residentSnapshot,
 } from "@/lib/welfare-write";
 import { ORG_GUARDRAILS, formatMinutes } from "@/lib/welfare-policy";
+import { needsAction } from "@/lib/welfare-engine";
 import { OUTCOME_LABEL, welfareFormatters } from "@/lib/welfare";
 import { mostRecentWallTime, parseLocalDateTime } from "@/lib/zoned-time";
 
@@ -37,18 +38,34 @@ function revalidateWelfare(residentId?: string) {
   if (residentId) revalidatePath(`/residents/${residentId}`);
 }
 
+type When = { at: Date | "now" } | { error: string };
+
 /**
  * "Just now", or a typed "HH:MM" read as the most recent time the clock
- * showed it — within the late-logging window.
+ * showed it — within the late-logging window. "Just now" is resolved later,
+ * inside the transaction, by `resolveWhen`.
  */
-function happenedAtFrom(formData: FormData, now: Date, timeZone: string): Date | string {
-  if (formData.get("when") !== "earlier") return now;
+function whenFrom(formData: FormData, now: Date, timeZone: string): When {
+  if (formData.get("when") !== "earlier") return { at: "now" };
   const at = mostRecentWallTime(String(formData.get("time") ?? ""), now, timeZone);
-  if (!at) return "Enter the time it happened.";
+  if (!at) return { error: "Enter the time it happened." };
   if (now.getTime() - at.getTime() > ORG_GUARDRAILS.lateLogWindowMinutes * 60_000) {
-    return `You can log something up to ${formatMinutes(ORG_GUARDRAILS.lateLogWindowMinutes)} after it happened. For anything older, add it to the handover.`;
+    return {
+      error: `You can log something up to ${formatMinutes(ORG_GUARDRAILS.lateLogWindowMinutes)} after it happened. For anything older, add it to the handover.`,
+    };
   }
-  return at;
+  return { at };
+}
+
+/**
+ * The moment a write takes effect, read *after* the resident lock so the
+ * snapshot sees everything committed before it (decision D2). A typed time
+ * is never allowed to be later than that.
+ */
+function resolveWhen(when: { at: Date | "now" }): { now: Date; happenedAt: Date } {
+  const now = new Date();
+  if (when.at === "now") return { now, happenedAt: now };
+  return { now, happenedAt: when.at.getTime() > now.getTime() ? now : when.at };
 }
 
 /* ------------------------------------------------------------------ */
@@ -74,10 +91,9 @@ export async function logWelfareCheck(
   });
   if (!parsed.success) return { error: "Choose what happened and how." };
 
-  const now = new Date();
   const timeZone = await siteTimeZone(staff.siteId);
-  const happenedAt = happenedAtFrom(formData, now, timeZone);
-  if (typeof happenedAt === "string") return { error: happenedAt };
+  const when = whenFrom(formData, new Date(), timeZone);
+  if ("error" in when) return { error: when.error };
 
   const ctx = await requestContext();
   let result: Awaited<ReturnType<typeof logContactInTx>> | "not_found";
@@ -85,6 +101,7 @@ export async function logWelfareCheck(
     result = await getDb().transaction(async (tx) => {
       const resident = await lockResident(tx, staff.siteId, residentId);
       if (!resident || resident.status === "discharged") return "not_found" as const;
+      const { now, happenedAt } = resolveWhen(when);
       return logContactInTx(tx, {
         actor: staff,
         resident,
@@ -107,11 +124,13 @@ export async function logWelfareCheck(
     ok: true,
     message: result.closedEscalation
       ? "Check logged — escalation closed"
-      : result.openedEscalation
-        ? "Check logged — escalation started. Follow the steps."
-        : result.endedAbsence
-          ? "Welcome back logged"
-          : "Check logged",
+      : result.stillOverdue
+        ? "Check logged — they're still overdue, so the escalation stays open"
+        : result.openedEscalation
+          ? "Check logged — escalation started. Follow the steps."
+          : result.endedAbsence
+            ? "Welcome back logged"
+            : "Check logged",
   };
 }
 
@@ -132,11 +151,12 @@ export async function recordEscalationAction(
   if (!note.success) return { error: "Keep the note under 1,000 characters." };
   /** The latest seen/contacted check this page knew about — "none" if never. */
   const basis = String(formData.get("basis") ?? "");
+  /** The rules version whose steps the page showed. */
+  const rulesBasis = String(formData.get("rulesBasis") ?? "");
 
-  const now = new Date();
   const timeZone = await siteTimeZone(staff.siteId);
-  const happenedAt = happenedAtFrom(formData, now, timeZone);
-  if (typeof happenedAt === "string") return { error: happenedAt };
+  const when = whenFrom(formData, new Date(), timeZone);
+  if ("error" in when) return { error: when.error };
   const fmt = welfareFormatters(timeZone);
 
   const ctx = await requestContext();
@@ -145,6 +165,7 @@ export async function recordEscalationAction(
     state = await getDb().transaction(async (tx) => {
       const resident = await lockResident(tx, staff.siteId, residentId);
       if (!resident) return { error: "Resident not found." };
+      const { now, happenedAt } = resolveWhen(when);
       const { facts, snap } = await residentSnapshot(
         tx,
         staff.siteId,
@@ -155,9 +176,10 @@ export async function recordEscalationAction(
       if (!snap) return { error: "Resident not found." };
 
       // Stale-page check: refuse if they've been seen or contacted since
-      // this page was loaded. The action describes a world that's moved on.
+      // this page loaded and that ended the concern. (A sighting logged late
+      // that still leaves them overdue doesn't — the action still matters.)
       const current = snap.lastReset?.id ?? "none";
-      if (basis !== current && snap.lastReset) {
+      if (basis !== current && snap.lastReset && !needsAction(snap.state)) {
         const r = snap.lastReset;
         return {
           conflict: `${snap.name} was logged as ${OUTCOME_LABEL[r.outcome].toLowerCase()} at ${fmt.when(r.happenedAt, now)}${r.staffName ? ` by ${r.staffName}` : ""}. Nothing was recorded. If you've already called anyone about this, let them know ${resident.preferredName ?? resident.firstName} has been found.`,
@@ -171,6 +193,7 @@ export async function recordEscalationAction(
         snap,
         stepId,
         note: note.data || null,
+        rulesBasis,
         happenedAt,
         now,
         ctx,
@@ -202,11 +225,12 @@ export async function createAbsence(
   formData: FormData,
 ): Promise<WelfareActionState> {
   const staff = await assertCareStaff();
-  const now = new Date();
+  const requestNow = new Date();
   const timeZone = await siteTimeZone(staff.siteId);
 
+  // "Leaving now" is resolved inside the lock; a typed start is checked here.
   const startsRaw = String(formData.get("startsAt") ?? "");
-  const startsAt = startsRaw ? parseLocalDateTime(startsRaw, timeZone) : now;
+  const startsAt = startsRaw ? parseLocalDateTime(startsRaw, timeZone) : requestNow;
   const expectedBackAt = parseLocalDateTime(String(formData.get("expectedBackAt") ?? ""), timeZone);
   const reason = noteSchema.max(300).safeParse(formData.get("reason") ?? "");
   if (!startsAt) return { error: "Enter when they're leaving." };
@@ -215,10 +239,10 @@ export async function createAbsence(
   if (expectedBackAt.getTime() <= startsAt.getTime()) {
     return { error: "They need to be expected back after they leave." };
   }
-  if (expectedBackAt.getTime() <= now.getTime()) {
+  if (expectedBackAt.getTime() <= requestNow.getTime()) {
     return { error: "The expected back time has already passed." };
   }
-  if (now.getTime() - startsAt.getTime() > ORG_GUARDRAILS.lateLogWindowMinutes * 60_000) {
+  if (requestNow.getTime() - startsAt.getTime() > ORG_GUARDRAILS.lateLogWindowMinutes * 60_000) {
     return {
       error: `An absence can start at most ${formatMinutes(ORG_GUARDRAILS.lateLogWindowMinutes)} ago.`,
     };
@@ -233,13 +257,21 @@ export async function createAbsence(
     state = await getDb().transaction(async (tx) => {
       const resident = await lockResident(tx, staff.siteId, residentId);
       if (!resident || resident.status === "discharged") return { error: "Resident not found." };
+      const now = new Date();
+      const startsAtFinal = startsRaw ? startsAt : now;
       const { snap } = await residentSnapshot(tx, staff.siteId, residentId, now, new Date(now.getTime() - 24 * HOUR));
       if (snap?.escalation) {
         return {
           error: `There's an escalation running for ${snap.name}. If you know where they are, log them as contacted first — that closes it.`,
         };
       }
-      if (await overlappingAbsence(tx, residentId, startsAt, expectedBackAt)) {
+      // An absence must never hide someone who is already overdue.
+      if (snap && needsAction(snap.state)) {
+        return {
+          error: `${snap.name} is overdue for a check. Log them as seen or contacted first, then add the absence.`,
+        };
+      }
+      if (await overlappingAbsence(tx, residentId, startsAtFinal, expectedBackAt)) {
         return { error: "They already have a planned absence over that time. Change that one instead." };
       }
       const [row] = await tx
@@ -247,7 +279,7 @@ export async function createAbsence(
         .values({
           siteId: staff.siteId,
           residentId,
-          startsAt,
+          startsAt: startsAtFinal,
           expectedBackAt,
           reason: reason.data || null,
           createdByStaffId: staff.id,
@@ -264,7 +296,7 @@ export async function createAbsence(
           entityId: row.id,
           after: {
             residentId,
-            startsAt: startsAt.toISOString(),
+            startsAt: startsAtFinal.toISOString(),
             expectedBackAt: expectedBackAt.toISOString(),
             reason: reason.data || null,
           },
@@ -295,11 +327,10 @@ export async function changeAbsenceReturn(
   formData: FormData,
 ): Promise<WelfareActionState> {
   const staff = await assertCareStaff();
-  const now = new Date();
   const timeZone = await siteTimeZone(staff.siteId);
   const expectedBackAt = parseLocalDateTime(String(formData.get("expectedBackAt") ?? ""), timeZone);
   if (!expectedBackAt) return { error: "Enter when they're expected back." };
-  if (expectedBackAt.getTime() <= now.getTime()) {
+  if (expectedBackAt.getTime() <= Date.now()) {
     return { error: "Choose a time that hasn't passed yet. If they're back, use Back instead." };
   }
 
@@ -315,6 +346,7 @@ export async function changeAbsenceReturn(
   try {
     state = await getDb().transaction(async (tx) => {
       await lockResident(tx, staff.siteId, absence.residentId);
+      const now = new Date();
       const { snap } = await residentSnapshot(
         tx,
         staff.siteId,
@@ -360,11 +392,10 @@ export async function changeAbsenceReturn(
 /** They're back: logs them as seen in person now, which ends the absence. */
 export async function markAbsenceBack(absenceId: string): Promise<WelfareActionState> {
   const staff = await assertCareStaff();
-  const now = new Date();
   const absence = await findAbsence(absenceId, staff.siteId);
   if (!absence) return { error: "Absence not found." };
   if (absence.endedAt || absence.cancelledAt) return { error: "That absence has already finished." };
-  if (absence.startsAt.getTime() > now.getTime()) {
+  if (absence.startsAt.getTime() > Date.now()) {
     return { error: "This absence hasn't started yet — cancel it instead." };
   }
 
@@ -373,6 +404,7 @@ export async function markAbsenceBack(absenceId: string): Promise<WelfareActionS
     await getDb().transaction(async (tx) => {
       const resident = await lockResident(tx, staff.siteId, absence.residentId);
       if (!resident) throw new Error("Resident not found");
+      const now = new Date();
       await logContactInTx(tx, {
         actor: staff,
         resident,
@@ -395,14 +427,14 @@ export async function markAbsenceBack(absenceId: string): Promise<WelfareActionS
 
 export async function cancelAbsence(absenceId: string): Promise<WelfareActionState> {
   const staff = await assertCareStaff();
-  const now = new Date();
   const absence = await findAbsence(absenceId, staff.siteId);
   if (!absence) return { error: "Absence not found." };
   if (absence.endedAt || absence.cancelledAt) return { error: "That absence has already finished." };
 
   const ctx = await requestContext();
-  await getDb().transaction(async (tx) => {
+  const now = await getDb().transaction(async (tx) => {
     await lockResident(tx, staff.siteId, absence.residentId);
+    const now = new Date();
     await tx
       .update(welfareAbsences)
       .set({ cancelledAt: now, updatedAt: now })
@@ -418,6 +450,7 @@ export async function cancelAbsence(absenceId: string): Promise<WelfareActionSta
       },
       ctx,
     );
+    return now;
   });
 
   revalidateWelfare(absence.residentId);

@@ -166,9 +166,14 @@ export function computeWelfareState(input: EngineInput): WelfareState {
   if (!tier) return blank("no_plan", "tier_missing", lastResetAt);
 
   const interval = tier.intervalMinutes * MINUTE;
+  const from = lastResetAt ?? plan.startedAt;
+  const normalDue = new Date(from.getTime() + interval);
   const absence = currentAbsence(input.absences, now);
 
-  if (absence) {
+  // An absence only pauses the clock if they weren't already due when it
+  // started. Someone overdue before they were meant to leave hasn't been
+  // seen leaving, so they must not drop off "Needs action".
+  if (absence && absence.startsAt.getTime() < normalDue.getTime()) {
     if (now.getTime() < absence.expectedBackAt.getTime()) {
       return { ...blank("away", "absence", lastResetAt), tier, awayUntil: absence.expectedBackAt };
     }
@@ -186,11 +191,7 @@ export function computeWelfareState(input: EngineInput): WelfareState {
     });
   }
 
-  const from = lastResetAt ?? plan.startedAt;
-  return fromDue(now, tier, new Date(from.getTime() + interval), lastResetAt, {
-    pinned: false,
-    dueFromAbsence: false,
-  });
+  return fromDue(now, tier, normalDue, lastResetAt, { pinned: false, dueFromAbsence: false });
 }
 
 /**
@@ -221,6 +222,20 @@ export function needsAction(state: WelfareState): boolean {
   return state.kind === "overdue" || state.kind === "escalating";
 }
 
+/** How serious a step is, for ordering residents who are escalating on different tiers. */
+const STEP_SEVERITY: Record<EscalationAction, number> = {
+  report_missing: 3,
+  inform_on_call: 2,
+  inform_manager: 2,
+  retry_contact: 1,
+  other: 1,
+};
+
+/** The most serious step whose time has passed (0 if none). */
+export function escalationSeverity(state: WelfareState): number {
+  return state.steps.reduce((max, s) => (s.reached ? Math.max(max, STEP_SEVERITY[s.action]) : max), 0);
+}
+
 const RANK: Record<WelfareKind, number> = {
   escalating: 0,
   overdue: 1,
@@ -230,12 +245,17 @@ const RANK: Record<WelfareKind, number> = {
   away: 5,
 };
 
-/** Most urgent first: furthest-escalated, then longest overdue, then soonest due. */
+/**
+ * Most urgent first: by the most serious step reached (report missing,
+ * then on-call or manager, then retry — compared by what the step is, not
+ * its position, since tiers have different numbers of steps), then longest
+ * overdue, then soonest due.
+ */
 export function compareWelfare(a: WelfareState, b: WelfareState): number {
   if (RANK[a.kind] !== RANK[b.kind]) return RANK[a.kind] - RANK[b.kind];
   if (a.kind === "escalating" && b.kind === "escalating") {
-    const steps = (b.currentStepIndex ?? -1) - (a.currentStepIndex ?? -1);
-    if (steps !== 0) return steps;
+    const severity = escalationSeverity(b) - escalationSeverity(a);
+    if (severity !== 0) return severity;
   }
   // MAX_SAFE_INTEGER, not Infinity: Infinity − Infinity is NaN, which breaks sort.
   const last = Number.MAX_SAFE_INTEGER;

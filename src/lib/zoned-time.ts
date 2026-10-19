@@ -53,6 +53,26 @@ function offsetMs(instant: number, timeZone: string): number {
 }
 
 /**
+ * Every instant at which `timeZone`'s clock reads the given wall time, in
+ * order: usually one, two in the repeated hour when the clocks go back,
+ * none in the hour skipped when they go forward.
+ */
+export function zonedCandidates(p: WallParts, timeZone: string): Date[] {
+  const guess = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+  const HALF_DAY = 12 * 3_600_000;
+  // The zone's offset either side of any transition that could touch this day.
+  const before = offsetMs(guess - HALF_DAY, timeZone);
+  const after = offsetMs(guess + HALF_DAY, timeZone);
+  return [...new Set([guess - before, guess - after])]
+    .filter((c) => {
+      const w = wallParts(new Date(c), timeZone);
+      return w.day === p.day && w.hour === p.hour && w.minute === p.minute;
+    })
+    .sort((a, b) => a - b)
+    .map((c) => new Date(c));
+}
+
+/**
  * The instant at which `timeZone`'s clock reads the given wall time.
  *
  * On the night the clocks go back, 01:30 happens twice; this returns the
@@ -60,20 +80,12 @@ function offsetMs(instant: number, timeZone: string): number {
  * returns the instant an hour later on the new clock (02:30 BST).
  */
 export function zonedToInstant(p: WallParts, timeZone: string): Date {
-  const guess = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
-  const HALF_DAY = 12 * 3_600_000;
-  // The zone's offset either side of any transition that could touch this day.
-  const before = offsetMs(guess - HALF_DAY, timeZone);
-  const after = offsetMs(guess + HALF_DAY, timeZone);
-  const candidates = [...new Set([guess - before, guess - after])];
-  const matching = candidates.filter((c) => {
-    const w = wallParts(new Date(c), timeZone);
-    return w.day === p.day && w.hour === p.hour && w.minute === p.minute;
-  });
-  if (matching.length > 0) return new Date(Math.min(...matching));
+  const matching = zonedCandidates(p, timeZone);
+  if (matching.length > 0) return matching[0];
   // Not a real wall time (the hour skipped when the clocks go forward):
   // read it on the old clock, which lands an hour later on the new one.
-  return new Date(guess - before);
+  const guess = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+  return new Date(guess - offsetMs(guess - 12 * 3_600_000, timeZone));
 }
 
 /** "YYYY-MM-DD" for the wall-clock date of `instant` in `timeZone`. */
@@ -100,16 +112,27 @@ export const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
  * Read a typed "HH:MM" as the most recent time the clock showed it, at or
- * before `now` (plus a minute of slack for clock skew). Night staff type
- * "23:50" at 00:10 and mean last night, not tonight. Returns null for
+ * before `now` (plus a minute of slack for clock skew — callers clamp to
+ * their own `now`). Night staff type "23:50" at 00:10 and mean last night,
+ * not tonight; at 01:20 GMT on the night the clocks go back, "01:10" means
+ * ten minutes ago, not the 01:10 BST an hour earlier. Returns null for
  * anything that isn't a valid time.
  */
 export function mostRecentWallTime(hhmm: string, now: Date, timeZone: string): Date | null {
   if (!HHMM.test(hhmm)) return null;
+  const [hour, minute] = hhmm.split(":").map(Number);
   const today = zonedDate(now, timeZone);
-  const candidate = instantAt(today, hhmm, timeZone);
-  if (candidate.getTime() <= now.getTime() + 60_000) return candidate;
-  return instantAt(addDays(today, -1), hhmm, timeZone);
+  const limit = now.getTime() + 60_000;
+  const candidates = [today, addDays(today, -1)].flatMap((d) => {
+    const [year, month, day] = d.split("-").map(Number);
+    const p = { year, month, day, hour, minute };
+    const found = zonedCandidates(p, timeZone);
+    return found.length > 0 ? found : [zonedToInstant(p, timeZone)];
+  });
+  const latest = candidates
+    .filter((c) => c.getTime() <= limit)
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+  return latest ?? null;
 }
 
 /**

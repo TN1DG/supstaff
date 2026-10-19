@@ -2,14 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { residentWelfarePlans, welfareMethod } from "@/db/schema";
+import { residentWelfarePlans, welfareMethod, welfarePolicyVersions } from "@/db/schema";
 import { assertRole } from "@/lib/rbac";
 import { auditActor, requestContext, writeAudit } from "@/lib/audit";
 import { listPolicyVersions } from "@/lib/welfare-queries";
 import { lockResident } from "@/lib/welfare-write";
+import { parsePolicyConfig } from "@/lib/welfare-policy";
 
 export type WelfarePlanState = {
   error?: string;
@@ -57,11 +58,26 @@ export async function saveWelfarePlan(
 
   const ctx = await requestContext();
   const now = new Date();
-  let saved: "ok" | "not_found";
+  let saved: "ok" | "not_found" | "tier_gone";
   try {
     saved = await getDb().transaction(async (tx) => {
       const resident = await lockResident(tx, staff.siteId, residentId);
       if (!resident || resident.status === "discharged") return "not_found" as const;
+
+      // A rules publish holds FOR UPDATE on the latest version while it
+      // checks which tiers are in use; FOR SHARE waits for it to finish, so
+      // the two can't interleave. Then re-read: a newer version may exist.
+      const latestVersion = () =>
+        tx
+          .select({ config: welfarePolicyVersions.config })
+          .from(welfarePolicyVersions)
+          .where(eq(welfarePolicyVersions.siteId, staff.siteId))
+          .orderBy(desc(welfarePolicyVersions.version))
+          .limit(1);
+      await latestVersion().for("share");
+      const [newest] = await latestVersion();
+      const rules = newest ? parsePolicyConfig(newest.config) : null;
+      if (!rules?.tiers.some((t) => t.key === data.tierKey)) return "tier_gone" as const;
 
       const existing = await tx.query.residentWelfarePlans.findFirst({
         where: eq(residentWelfarePlans.residentId, residentId),
@@ -124,6 +140,9 @@ export async function saveWelfarePlan(
     return { error: "Could not save the plan. Please try again." };
   }
   if (saved === "not_found") return { error: "Resident not found." };
+  if (saved === "tier_gone") {
+    return { fieldErrors: { tierKey: "The welfare rules just changed and that tier is gone — reload the page." } };
+  }
 
   revalidatePath(`/residents/${residentId}`);
   revalidatePath("/welfare");
