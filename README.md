@@ -19,7 +19,6 @@ Tailwind + shadcn/ui, deployed on Vercel.
 | 4 | Building reports + housing officer dashboard | **built** |
 | 5 | Salesforce / Saw-it API integration + manager insights | planned |
 
-Full plan: `~/.claude/plans/supstaff-is-an-app-velvet-harbor.md` ·
 Change history: [`docs/PROGRESS.md`](docs/PROGRESS.md)
 
 ## Local setup
