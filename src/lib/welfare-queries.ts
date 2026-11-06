@@ -5,7 +5,6 @@ import { getDb, type DbOrTx } from "@/db";
 import {
   residents,
   residentWelfarePlans,
-  sites,
   staff,
   welfareAbsences,
   welfareContacts,
@@ -13,17 +12,14 @@ import {
   welfareEscalations,
   welfarePolicyVersions,
 } from "@/db/schema";
+import { getSiteConfig } from "@/lib/site-settings";
 import { parsePolicyConfig } from "@/lib/welfare-policy";
 import type { FactsAction, FactsContact, FactsVersion, WelfareFacts } from "@/lib/welfare-snapshot";
 
 /** The site's IANA time zone — every welfare time is shown and typed in it. */
-export const siteTimeZone = cache(async (siteId: string): Promise<string> => {
-  const site = await getDb().query.sites.findFirst({
-    where: eq(sites.id, siteId),
-    columns: { timezone: true },
-  });
-  return site?.timezone || "Europe/London";
-});
+export const siteTimeZone = cache(
+  async (siteId: string): Promise<string> => (await getSiteConfig(siteId)).timezone,
+);
 
 /** Manager, or the support officer the manager named as welfare rules deputy. */
 export async function canEditWelfareRules(person: {

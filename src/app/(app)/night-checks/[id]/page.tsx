@@ -14,6 +14,7 @@ import {
 } from "@/lib/night-checks";
 import { getSiteConfig } from "@/lib/site-settings";
 import { localTime } from "@/lib/site-time";
+import { residentName } from "@/lib/welfare-snapshot";
 import { and, asc, eq } from "drizzle-orm";
 import { residents, wakingNightShifts } from "@/db/schema";
 import { EventDialog } from "../../waking-night/event-dialog";
@@ -40,23 +41,25 @@ export default async function RoundPage({
   const { id } = await params;
   const db = getDb();
 
-  const round = await db.query.nightCheckRounds.findFirst({
-    where: bySite(nightCheckRounds, id, staffMember.siteId),
-    with: {
-      staff: { columns: { name: true } },
-      completedBy: { columns: { name: true } },
-      items: {
-        with: {
-          templateItem: {
-            columns: { area: true, description: true, sortOrder: true, kind: true },
+  const [round, config] = await Promise.all([
+    db.query.nightCheckRounds.findFirst({
+      where: bySite(nightCheckRounds, id, staffMember.siteId),
+      with: {
+        staff: { columns: { name: true } },
+        completedBy: { columns: { name: true } },
+        items: {
+          with: {
+            templateItem: {
+              columns: { area: true, description: true, sortOrder: true, kind: true },
+            },
           },
         },
       },
-    },
-  });
+    }),
+    getSiteConfig(staffMember.siteId),
+  ]);
   if (!round) notFound();
 
-  const config = await getSiteConfig(staffMember.siteId);
   const timeFmt = new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
@@ -86,7 +89,7 @@ export default async function RoundPage({
           })
         ).map((r) => ({
           id: r.id,
-          name: `${r.preferredName ?? r.firstName} ${r.lastName}`,
+          name: residentName(r),
           room: r.room,
         }))
       : [];

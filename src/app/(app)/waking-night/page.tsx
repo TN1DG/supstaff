@@ -7,6 +7,7 @@ import { requireCareStaff } from "@/lib/rbac";
 import { localTime } from "@/lib/site-time";
 import { ROUND_STATE_META } from "@/lib/night-checks";
 import { loadShiftView } from "@/lib/waking-night/shift-view";
+import { residentName } from "@/lib/welfare-snapshot";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,21 +24,21 @@ export const metadata: Metadata = { title: "Waking night" };
 
 export default async function WakingNightPage() {
   const staffMember = await requireCareStaff();
-  const view = await loadShiftView(staffMember.siteId);
-  const { config, night, shift, rounds, items, events, blockers } = view;
-
-  const residentOptions: ResidentOption[] = (
-    await getDb().query.residents.findMany({
+  const [view, activeResidents] = await Promise.all([
+    loadShiftView(staffMember.siteId),
+    getDb().query.residents.findMany({
       where: and(
         eq(residentsTable.siteId, staffMember.siteId),
         eq(residentsTable.status, "active"),
       ),
       columns: { id: true, firstName: true, lastName: true, preferredName: true, room: true },
       orderBy: [asc(residentsTable.lastName)],
-    })
-  ).map((r) => ({
+    }),
+  ]);
+  const { config, night, shift, rounds, items, events, blockers } = view;
+  const residentOptions: ResidentOption[] = activeResidents.map((r) => ({
     id: r.id,
-    name: `${r.preferredName ?? r.firstName} ${r.lastName}`,
+    name: residentName(r),
     room: r.room,
   }));
 
@@ -47,11 +48,6 @@ export default async function WakingNightPage() {
     day: "numeric",
     month: "long",
     timeZone: "UTC", // `night` is a bare date — format it as-is
-  });
-  const timeFmt = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: tz,
   });
   const nightLabel = dateFmt.format(new Date(`${night}T00:00:00Z`));
   const signedOff = shift?.status === "signed_off";
@@ -64,7 +60,7 @@ export default async function WakingNightPage() {
     choice: f.choice,
     reason: f.reason,
     resolvedByName: f.resolvedBy?.name ?? null,
-    resolvedAtLabel: f.resolvedAt ? timeFmt.format(f.resolvedAt) : null,
+    resolvedAtLabel: f.resolvedAt ? localTime(f.resolvedAt, tz) : null,
     link:
       f.sourceEntityType === "handover" && f.sourceEntityId
         ? { label: "Night handover", href: `/handovers/${f.sourceEntityId}` }
@@ -113,9 +109,9 @@ export default async function WakingNightPage() {
               </p>
               <p className="font-medium">
                 {signedOff && shift?.signedOffAt
-                  ? `${timeFmt.format(shift.signedOffAt)} by ${shift.signedOffBy?.name ?? "—"}`
+                  ? `${localTime(shift.signedOffAt, tz)} by ${shift.signedOffBy?.name ?? "—"}`
                   : shift
-                    ? timeFmt.format(shift.startedAt)
+                    ? localTime(shift.startedAt, tz)
                     : "Not started"}
               </p>
             </div>
@@ -163,7 +159,7 @@ export default async function WakingNightPage() {
                         <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>
                         {round?.completedAt ? (
                           <span className="text-sm text-muted-foreground">
-                            Done {timeFmt.format(round.completedAt)} by{" "}
+                            Done {localTime(round.completedAt, tz)} by{" "}
                             {round.completedBy?.name ?? "—"}
                             {round.floorsCovered?.length
                               ? ` · floors ${round.floorsCovered.join(", ")}`
@@ -171,7 +167,7 @@ export default async function WakingNightPage() {
                           </span>
                         ) : round?.startedAt ? (
                           <span className="text-sm text-muted-foreground">
-                            Started {timeFmt.format(round.startedAt)} by {round.staff?.name ?? "—"}
+                            Started {localTime(round.startedAt, tz)} by {round.staff?.name ?? "—"}
                           </span>
                         ) : null}
                       </div>
@@ -240,7 +236,7 @@ export default async function WakingNightPage() {
                 events.map((e) => (
                   <div key={e.id} className="space-y-2 py-3 first:pt-0 last:pb-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="w-14 font-medium">{timeFmt.format(e.occurredAt)}</span>
+                      <span className="w-14 font-medium">{localTime(e.occurredAt, tz)}</span>
                       <span className="font-medium">{e.label}</span>
                       {e.severity === "serious" ? (
                         <StatusBadge tone="danger">Serious</StatusBadge>
@@ -294,7 +290,7 @@ export default async function WakingNightPage() {
                     evidence: item.evidence,
                     issues: item.issues,
                     resolvedByName: item.resolvedByName,
-                    resolvedAtLabel: item.resolvedAt ? timeFmt.format(item.resolvedAt) : null,
+                    resolvedAtLabel: item.resolvedAt ? localTime(item.resolvedAt, tz) : null,
                   }}
                 />
               ))}

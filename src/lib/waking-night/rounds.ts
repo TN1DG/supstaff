@@ -1,4 +1,5 @@
 import { isMorningSlot, nightSlotAt } from "@/lib/site-time";
+import { HHMM } from "@/lib/zoned-time";
 
 /**
  * Welfare-round timing rules. Pure functions only — the server actions, the
@@ -12,10 +13,8 @@ export const DEFAULT_TOLERANCE_MINUTES = 30;
 /** How long after the last round it stays recoverable (late) before it's missed. */
 export const LAST_ROUND_GRACE_MINUTES = 120;
 
-const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-
 export function isValidSlotTime(value: string): boolean {
-  return TIME_RE.test(value);
+  return HHMM.test(value);
 }
 
 /** Minutes into the night, so 23:00 sorts before 01:00. */

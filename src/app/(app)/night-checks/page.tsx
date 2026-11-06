@@ -7,7 +7,8 @@ import { requireCareStaff } from "@/lib/rbac";
 import { hasRole } from "@/lib/roles";
 import { ROUND_STATE_META } from "@/lib/night-checks";
 import { getSiteConfig } from "@/lib/site-settings";
-import { addDays, nightOf } from "@/lib/site-time";
+import { nightOf } from "@/lib/site-time";
+import { addDays } from "@/lib/zoned-time";
 import { buildRoundSchedule, mergeNightRounds } from "@/lib/waking-night/rounds";
 import { loadNightRounds } from "@/lib/waking-night/round-store";
 import type { StatusTone } from "@/lib/status-tone";
@@ -45,7 +46,8 @@ export default async function NightChecksPage() {
   const config = await getSiteConfig(staffMember.siteId);
   const checkDate = nightOf(now, config.timezone);
 
-  const [tonightRounds, activeItems] = await Promise.all([
+  const nights = nightsBack(7, checkDate);
+  const [tonightRounds, activeItems, gridRounds] = await Promise.all([
     loadNightRounds(staffMember.siteId, checkDate, config, now),
     db.query.nightCheckTemplateItems.findMany({
       where: and(
@@ -54,26 +56,25 @@ export default async function NightChecksPage() {
       ),
       columns: { id: true },
     }),
+    isManager
+      ? db.query.nightCheckRounds.findMany({
+          where: and(
+            eq(nightCheckRounds.siteId, staffMember.siteId),
+            inArray(nightCheckRounds.checkDate, nights),
+          ),
+          columns: {
+            checkDate: true,
+            roundTime: true,
+            status: true,
+            scheduledAt: true,
+            startedAt: true,
+            completedAt: true,
+            timelinessReason: true,
+          },
+        })
+      : [],
   ]);
 
-  const nights = nightsBack(7, checkDate);
-  const gridRounds = isManager
-    ? await db.query.nightCheckRounds.findMany({
-        where: and(
-          eq(nightCheckRounds.siteId, staffMember.siteId),
-          inArray(nightCheckRounds.checkDate, nights),
-        ),
-        columns: {
-          checkDate: true,
-          roundTime: true,
-          status: true,
-          scheduledAt: true,
-          startedAt: true,
-          completedAt: true,
-          timelinessReason: true,
-        },
-      })
-    : [];
   const gridStates = new Map(
     nights.map((night) => {
       const merged = mergeNightRounds(

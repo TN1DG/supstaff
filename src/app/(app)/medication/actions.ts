@@ -16,7 +16,8 @@ import {
 import { assertRole, assertCareStaff } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { pinCheck } from "@/lib/pin";
-import { isMedicationIssue, reportMedicationIssue } from "@/lib/medication-issues";
+import { isMedicationIssue } from "@/lib/medication";
+import { reportMedicationIssue } from "@/lib/medication-issues";
 import { bySite } from "@/lib/db-scope";
 import { fieldErrors } from "@/lib/forms";
 import {

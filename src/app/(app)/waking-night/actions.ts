@@ -1,7 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import {
@@ -9,24 +8,19 @@ import {
   nightCheckRounds,
   shiftChecklistResults,
   wakingNightShifts,
+  type RoundTimelinessValue,
 } from "@/db/schema";
 import { assertCareStaff } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { pinCheck } from "@/lib/pin";
-import { bySite } from "@/lib/db-scope";
 import { firstIssue } from "@/lib/forms";
 import { getSiteConfig } from "@/lib/site-settings";
-import { nightOf } from "@/lib/site-time";
+import { localTime, nightOf } from "@/lib/site-time";
 import { CHECKLIST_ITEM_BY_KEY, validateResolution } from "@/lib/waking-night/checklist";
 import { ensureScheduledRounds } from "@/lib/waking-night/round-store";
 import { loadShiftView, type ShiftView } from "@/lib/waking-night/shift-view";
 import { appendHandoverNote } from "@/lib/handover-sync";
-
-function revalidateShift() {
-  revalidatePath("/waking-night");
-  revalidatePath("/night-checks");
-  revalidatePath("/");
-}
+import { loadOpenShift, revalidateShift } from "./shift-guard";
 
 /**
  * Start tonight's waking-night shift: the shift header plus a `scheduled` row
@@ -99,12 +93,8 @@ export async function resolveChecklistItem(
 
   const db = getDb();
   const ctx = await requestContext();
-  const shift = await db.query.wakingNightShifts.findFirst({
-    where: bySite(wakingNightShifts, shiftId, staffMember.siteId),
-    columns: { id: true, status: true },
-  });
-  if (!shift) return { error: "Shift not found." };
-  if (shift.status !== "open") return { error: "This shift has been signed off." };
+  const found = await loadOpenShift(shiftId, staffMember.siteId);
+  if ("error" in found) return { error: found.error };
 
   const now = new Date();
   const values = {
@@ -143,11 +133,7 @@ const FOLLOW_UP_WORDS = { open: "open", done: "done", not_done: "not done", na: 
 
 /** One handover-ready paragraph: rounds, anything not done, and who signed off. */
 function checklistSummary(view: ShiftView, signedOffBy: string, now: Date): string {
-  const time = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: view.config.timezone,
-  }).format(now);
+  const time = localTime(now, view.config.timezone);
   const count = (t: string) => view.rounds.filter((r) => r.timeliness === t).length;
   const roundNotes = view.rounds
     .filter((r) => r.timeliness && r.timeliness !== "on_time")
@@ -186,12 +172,9 @@ export async function signOffShift(
   const db = getDb();
   const ctx = await requestContext();
 
-  const shift = await db.query.wakingNightShifts.findFirst({
-    where: bySite(wakingNightShifts, shiftId, staffMember.siteId),
-    columns: { id: true, status: true, shiftDate: true },
-  });
-  if (!shift) return { error: "Shift not found." };
-  if (shift.status !== "open") return { error: "This shift has already been signed off." };
+  const found = await loadOpenShift(shiftId, staffMember.siteId);
+  if ("error" in found) return { error: found.error };
+  const { shift } = found;
 
   const view = await loadShiftView(staffMember.siteId, { night: shift.shiftDate });
   if (view.blockers.length > 0) {
@@ -215,39 +198,61 @@ export async function signOffShift(
       .returning({ id: wakingNightShifts.id });
     if (!row) return false;
 
-    // Rounds whose verdict was only computed live go on record now.
+    // Rounds whose verdict was only computed live go on record now — one
+    // UPDATE per (verdict, still-scheduled) group rather than one per round.
+    const verdicts = new Map<string, string[]>();
     for (const r of view.rounds) {
       if (!r.row || !r.timeliness || r.row.timeliness === r.timeliness) continue;
+      const key = `${r.timeliness}|${r.row.status === "scheduled"}`;
+      verdicts.set(key, [...(verdicts.get(key) ?? []), r.row.id]);
+    }
+    for (const [key, ids] of verdicts) {
+      const [timeliness, scheduled] = key.split("|");
       await tx
         .update(nightCheckRounds)
         .set({
-          timeliness: r.timeliness,
-          ...(r.row.status === "scheduled" ? { status: "missed" as const } : {}),
+          timeliness: timeliness as RoundTimelinessValue,
+          ...(scheduled === "true" ? { status: "missed" as const } : {}),
           updatedAt: now,
         })
-        .where(eq(nightCheckRounds.id, r.row.id));
+        .where(inArray(nightCheckRounds.id, ids));
     }
 
     // Snapshot auto-completed items so the record survives later data changes.
-    for (const item of view.items) {
-      if (item.resolvedBy !== "auto" || !item.status) continue;
+    const autoRows = view.items.flatMap((item) => {
+      if (item.resolvedBy !== "auto" || !item.status) return [];
       const outcome = view.auto[item.key];
-      const values = {
-        status: item.status,
-        source: "auto" as const,
-        // Keep the evidence text as the reason so the record reads on its own.
-        reason: outcome?.evidence.map((e) => e.label).join("; ") || null,
-        sourceEntityType: outcome?.sourceEntityType ?? null,
-        sourceEntityId: outcome?.sourceEntityId ?? null,
-        resolvedByStaffId: null,
-        resolvedAt: now,
-      };
+      return [
+        {
+          shiftId,
+          itemKey: item.key,
+          status: item.status,
+          source: "auto" as const,
+          // Keep the evidence text as the reason so the record reads on its own.
+          reason: outcome?.evidence.map((e) => e.label).join("; ") || null,
+          sourceEntityType: outcome?.sourceEntityType ?? null,
+          sourceEntityId: outcome?.sourceEntityId ?? null,
+          resolvedByStaffId: null,
+          resolvedAt: now,
+        },
+      ];
+    });
+    if (autoRows.length > 0) {
+      const excluded = (col: string) => sql.raw(`excluded.${col}`);
       await tx
         .insert(shiftChecklistResults)
-        .values({ shiftId, itemKey: item.key, ...values })
+        .values(autoRows)
         .onConflictDoUpdate({
           target: [shiftChecklistResults.shiftId, shiftChecklistResults.itemKey],
-          set: values,
+          set: {
+            status: excluded("status"),
+            source: excluded("source"),
+            reason: excluded("reason"),
+            sourceEntityType: excluded("source_entity_type"),
+            sourceEntityId: excluded("source_entity_id"),
+            resolvedByStaffId: excluded("resolved_by_staff_id"),
+            resolvedAt: excluded("resolved_at"),
+          },
         });
     }
 

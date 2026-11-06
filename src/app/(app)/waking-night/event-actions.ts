@@ -1,16 +1,9 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import {
-  nightCheckRounds,
-  nightEvents,
-  residents,
-  shiftFollowUps,
-  wakingNightShifts,
-} from "@/db/schema";
+import { nightCheckRounds, nightEvents, residents, shiftFollowUps } from "@/db/schema";
 import { assertCareStaff } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { bySite } from "@/lib/db-scope";
@@ -27,11 +20,8 @@ import {
   followUpsFor,
 } from "@/lib/waking-night/escalation";
 import { isValidSlotTime } from "@/lib/waking-night/rounds";
-
-function revalidateShift() {
-  revalidatePath("/waking-night");
-  revalidatePath("/handovers", "layout");
-}
+import { residentName as displayName } from "@/lib/welfare-snapshot";
+import { loadOpenShift, revalidateShift } from "./shift-guard";
 
 const eventSchema = z
   .object({
@@ -77,29 +67,27 @@ export async function logEvent(
 
   const db = getDb();
   const ctx = await requestContext();
-  const shift = await db.query.wakingNightShifts.findFirst({
-    where: bySite(wakingNightShifts, shiftId, staffMember.siteId),
-    columns: { id: true, status: true, shiftDate: true },
-  });
-  if (!shift) return { error: "Shift not found." };
-  if (shift.status !== "open") return { error: "This shift has been signed off." };
-
-  const resident = e.residentId
-    ? await db.query.residents.findFirst({
-        where: bySite(residents, e.residentId, staffMember.siteId),
-        columns: { id: true, firstName: true, lastName: true, preferredName: true, room: true },
-      })
-    : null;
+  const [found, resident, round, config] = await Promise.all([
+    loadOpenShift(shiftId, staffMember.siteId),
+    e.residentId
+      ? db.query.residents.findFirst({
+          where: bySite(residents, e.residentId, staffMember.siteId),
+          columns: { id: true, firstName: true, lastName: true, preferredName: true, room: true },
+        })
+      : null,
+    e.roundId
+      ? db.query.nightCheckRounds.findFirst({
+          where: bySite(nightCheckRounds, e.roundId, staffMember.siteId),
+          columns: { id: true },
+        })
+      : null,
+    getSiteConfig(staffMember.siteId),
+  ]);
+  if ("error" in found) return { error: found.error };
+  const { shift } = found;
   if (e.residentId && !resident) return { error: "Customer not found." };
-  if (e.roundId) {
-    const round = await db.query.nightCheckRounds.findFirst({
-      where: bySite(nightCheckRounds, e.roundId, staffMember.siteId),
-      columns: { id: true },
-    });
-    if (!round) return { error: "Round not found." };
-  }
+  if (e.roundId && !round) return { error: "Round not found." };
 
-  const config = await getSiteConfig(staffMember.siteId);
   const occurredAt = nightSlotAt(shift.shiftDate, e.occurredTime, config.timezone);
   const now = new Date();
   if (occurredAt.getTime() > now.getTime() + 5 * 60_000) {
@@ -107,9 +95,7 @@ export async function logEvent(
   }
 
   const meta = NIGHT_EVENT_META[e.type];
-  const residentName = resident
-    ? `${resident.preferredName ?? resident.firstName} ${resident.lastName}`
-    : null;
+  const residentName = resident ? displayName(resident) : null;
   const headline = `${meta.label}${e.severity === "serious" ? " (serious)" : ""}${
     residentName ? ` — ${residentName}` : ""
   }`;
@@ -174,38 +160,43 @@ export async function logEvent(
       .set({ maintenanceReportId: reportId, handoverId })
       .where(eq(nightEvents.id, event.id));
 
-    for (const spec of followUpsFor(e)) {
-      const auto =
-        spec.auto === "repairs_log" && reportId
-          ? { sourceEntityType: "maintenance_report", sourceEntityId: reportId }
-          : spec.auto === "written_handover"
-            ? { sourceEntityType: "handover", sourceEntityId: handoverId }
-            : null;
-      await tx.insert(shiftFollowUps).values({
-        shiftId,
-        eventId: event.id,
-        kind: spec.kind,
-        label: spec.label,
-        allowNa: spec.allowNa,
-        choices: spec.choices ?? null,
-        ...(auto ? { status: "done" as const, resolvedAt: now, ...auto } : {}),
+    const specs = followUpsFor(e);
+    if (specs.length > 0) {
+      await tx.insert(shiftFollowUps).values(
+        specs.map((spec) => {
+          const auto =
+            spec.auto === "repairs_log" && reportId
+              ? { sourceEntityType: "maintenance_report", sourceEntityId: reportId }
+              : spec.auto === "written_handover"
+                ? { sourceEntityType: "handover", sourceEntityId: handoverId }
+                : null;
+          return {
+            shiftId,
+            eventId: event.id,
+            kind: spec.kind,
+            label: spec.label,
+            allowNa: spec.allowNa,
+            choices: spec.choices ?? null,
+            ...(auto ? { status: "done" as const, resolvedAt: now, ...auto } : {}),
+          };
+        }),
+      );
+    }
+    // The email is queued now; staff still confirm it went (decision 3).
+    if (specs.some((spec) => spec.kind === "email_team")) {
+      await enqueueOutbox(tx, {
+        siteId: staffMember.siteId,
+        target: "email",
+        entityType: "night_event",
+        entityId: event.id,
+        payload: {
+          kind: "night_event",
+          to: config.teamEmail,
+          subject: `${headline} — night of ${shift.shiftDate}`,
+          body: line,
+        handoverId,
+      },
       });
-      // The email is queued now; staff still confirm it went (decision 3).
-      if (spec.kind === "email_team") {
-        await enqueueOutbox(tx, {
-          siteId: staffMember.siteId,
-          target: "email",
-          entityType: "night_event",
-          entityId: event.id,
-          payload: {
-            kind: "night_event",
-            to: config.teamEmail,
-            subject: `${headline} — night of ${shift.shiftDate}`,
-            body: line,
-            handoverId,
-          },
-        });
-      }
     }
 
     await writeAudit(

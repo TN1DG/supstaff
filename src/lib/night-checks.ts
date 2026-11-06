@@ -4,8 +4,8 @@ import type { LiveRoundState } from "@/lib/waking-night/rounds";
 
 /**
  * Format a Date as its *server-local* calendar date. Never use `toISOString()`
- * for this — it converts to UTC first. Prefer `localDate(now, tz)` from
- * `@/lib/site-time` for anything that must follow the site's timezone; this
+ * for this — it converts to UTC first. Prefer `zonedDate(now, tz)` from
+ * `@/lib/zoned-time` for anything that must follow the site's timezone; this
  * stays for the eMAR and report code that hasn't moved over yet.
  */
 export function isoDate(d: Date): string {

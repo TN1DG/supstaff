@@ -54,8 +54,6 @@ export type FollowUpSpec = {
   choices?: string[];
   /** Done by the system at log time — the record that does it is linked. */
   auto?: "repairs_log" | "written_handover";
-  /** Uses a quick-reference number from service settings. */
-  dial?: "ooh_repairs" | "on_call_manager" | "emergency" | "nhs" | "police_non_emergency";
 };
 
 const EMAIL_TEAM: FollowUpSpec = {
@@ -77,7 +75,6 @@ export function followUpsFor(event: {
           kind: "call_ooh_repairs",
           label: "Call the out-of-hours repairs number",
           allowNa: false,
-          dial: "ooh_repairs",
         },
         {
           kind: "update_repairs_log",
@@ -108,7 +105,6 @@ export function followUpsFor(event: {
           kind: "contact_emergency_services",
           label: "Contact police or emergency services if needed",
           allowNa: true,
-          dial: "emergency",
         },
       );
       break;
@@ -120,7 +116,6 @@ export function followUpsFor(event: {
         label: "Call 999 or 111",
         allowNa: false,
         choices: ["999", "111"],
-        dial: "nhs",
       });
       break;
     case "staff_threatened":
@@ -129,7 +124,6 @@ export function followUpsFor(event: {
         label: "Call 999 or 101",
         allowNa: false,
         choices: ["999", "101"],
-        dial: "police_non_emergency",
       });
       break;
   }
@@ -141,7 +135,6 @@ export function followUpsFor(event: {
       kind: "contact_on_call_manager",
       label: "Contact the on-call manager",
       allowNa: false,
-      dial: "on_call_manager",
     });
   }
   return out;

@@ -28,10 +28,13 @@ function saveNotified(keys: Set<string>) {
   }
 }
 
+let audio: AudioContext | null = null;
+
 /** A short two-tone chime; silently does nothing if audio is blocked. */
 function chime() {
   try {
-    const ctx = new AudioContext();
+    // One context for the tab — browsers cap how many can be live at once.
+    const ctx = (audio ??= new AudioContext());
     [880, 660].forEach((freq, i) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -61,6 +64,8 @@ export function RoundReminder() {
   const notified = useRef<Set<string> | null>(null);
 
   const check = useCallback(async () => {
+    // Hidden tabs skip the poll; `visibilitychange` catches up on return.
+    if (document.hidden) return;
     let rounds: RoundInfo[];
     try {
       const res = await fetch("/api/waking-night/rounds", { cache: "no-store" });

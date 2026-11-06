@@ -3,20 +3,11 @@ import type { DbOrTx } from "@/db";
 import { medicationReasonCodes, residents } from "@/db/schema";
 import { currentHandoverSlot } from "@/lib/handover-defaults";
 import { appendHandoverNote } from "@/lib/handover-sync";
-import { roundLabel } from "@/lib/medication";
+import { MEDICATION_ISSUE_OUTCOMES, roundLabel } from "@/lib/medication";
 import { enqueueOutbox } from "@/lib/outbox";
 import { getSiteConfig } from "@/lib/site-settings";
-
-/** Outcomes that are a medication issue: they go on the handover and to the team. */
-export const MEDICATION_ISSUE_OUTCOMES = {
-  refused: "Refused",
-  omitted: "Omitted",
-  not_available: "Not available",
-} as const;
-
-export function isMedicationIssue(outcome: string): outcome is keyof typeof MEDICATION_ISSUE_OUTCOMES {
-  return outcome in MEDICATION_ISSUE_OUTCOMES;
-}
+import { localTime } from "@/lib/site-time";
+import { residentName as displayName } from "@/lib/welfare-snapshot";
 
 /**
  * A refused/omitted/unavailable dose: write it onto the current shift's
@@ -54,14 +45,8 @@ export async function reportMedicationIssue(
         })
       : null,
   ]);
-  const residentName = resident
-    ? `${resident.preferredName ?? resident.firstName} ${resident.lastName}`
-    : "Resident";
-  const time = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: config.timezone,
-  }).format(params.now);
+  const residentName = resident ? displayName(resident) : "Resident";
+  const time = localTime(params.now, config.timezone);
   const what = `${MEDICATION_ISSUE_OUTCOMES[params.outcome]}: ${params.medicationName}${
     params.strength ? ` ${params.strength}` : ""
   } (${params.scheduledRound ? roundLabel(params.scheduledRound) : "PRN"})`;

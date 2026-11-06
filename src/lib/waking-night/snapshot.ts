@@ -4,7 +4,7 @@ import { handovers, outbox } from "@/db/schema";
 import { dueDosesForRound } from "@/app/(app)/medication/queries";
 import { MEDICATION_ROUNDS, isMedicationRound, roundLabel } from "@/lib/medication";
 import type { SiteConfig } from "@/lib/site-settings";
-import { zonedDateTime } from "@/lib/site-time";
+import { instantAt } from "@/lib/zoned-time";
 import type { ShiftSnapshot } from "@/lib/waking-night/auto-items";
 import type { NightRound, StoredRoundLike } from "@/lib/waking-night/rounds";
 
@@ -75,8 +75,8 @@ export async function loadShiftSnapshot(
     const idx = MEDICATION_ROUNDS.findIndex((r) => r.round === round);
     const next = MEDICATION_ROUNDS[idx + 1];
     const end = next
-      ? zonedDateTime(night, next.time, config.timezone)
-      : new Date(zonedDateTime(night, MEDICATION_ROUNDS[idx].time, config.timezone).getTime() + 2 * 3_600_000);
+      ? instantAt(night, next.time, config.timezone)
+      : new Date(instantAt(night, MEDICATION_ROUNDS[idx].time, config.timezone).getTime() + 2 * 3_600_000);
     return now >= end;
   };
 

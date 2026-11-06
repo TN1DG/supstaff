@@ -9,6 +9,7 @@ import { NIGHT_EVENT_META } from "@/lib/waking-night/escalation";
 import { loadShiftSnapshot } from "@/lib/waking-night/snapshot";
 import { loadNightRounds } from "@/lib/waking-night/round-store";
 import { signOffBlockers } from "@/lib/waking-night/sign-off";
+import { residentName } from "@/lib/welfare-snapshot";
 
 /**
  * Everything the waking-night page shows and sign-off enforces, assembled in
@@ -50,7 +51,7 @@ export async function loadShiftView(
   const events = (shift?.events ?? []).map((e) => ({
     ...e,
     label: `${NIGHT_EVENT_META[e.type].label}${
-      e.resident ? ` — ${e.resident.preferredName ?? e.resident.firstName} ${e.resident.lastName}` : ""
+      e.resident ? ` — ${residentName(e.resident)}` : ""
     }`,
   }));
   const followUps = events.flatMap((e) => e.followUps.map((f) => ({ ...f, eventLabel: e.label })));

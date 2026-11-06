@@ -1,5 +1,6 @@
 import type { AutoOutcome, Evidence } from "@/lib/waking-night/checklist";
 import type { RoundTimeliness } from "@/lib/waking-night/rounds";
+import { MEDICATION_ISSUE_OUTCOMES, isMedicationIssue } from "@/lib/medication";
 
 /**
  * Decide each auto checklist item from a snapshot of the other modules' data.
@@ -43,12 +44,6 @@ export type ShiftSnapshot = {
   events: { id: string; label: string; onHandover: boolean }[];
   /** Every "email the team" follow-up from tonight's events. */
   emailFollowUps: { id: string; label: string; status: "open" | "done" | "not_done" | "na" }[];
-};
-
-const ISSUE_OUTCOMES: Record<string, string> = {
-  refused: "Refused",
-  omitted: "Omitted",
-  not_available: "Not available",
 };
 
 function handoverLink(id: string, label: string): Evidence {
@@ -112,10 +107,10 @@ function handoverDelivered({ nightHandover }: ShiftSnapshot): AutoOutcome {
 
 function eveningMeds({ eveningMeds: m }: ShiftSnapshot): AutoOutcome {
   const issues = m.doses
-    .filter((d) => d.missed || (d.outcome && ISSUE_OUTCOMES[d.outcome]))
+    .filter((d) => d.missed || (d.outcome && isMedicationIssue(d.outcome)))
     .map(
       (d) =>
-        `${d.missed ? "Missed" : ISSUE_OUTCOMES[d.outcome!]}: ${d.medicationName} for ${d.residentName} (${d.roundLabel})`,
+        `${d.missed ? "Missed" : MEDICATION_ISSUE_OUTCOMES[d.outcome as keyof typeof MEDICATION_ISSUE_OUTCOMES]}: ${d.medicationName} for ${d.residentName} (${d.roundLabel})`,
     );
   if (m.doses.length === 0) {
     return { met: true, evidence: [{ label: "No evening doses scheduled", href: "/medication" }] };
