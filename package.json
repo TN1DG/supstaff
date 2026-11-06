@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\"",
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
     "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
@@ -21,7 +20,8 @@
     "seed:medication-scenarios": "dotenv -e .env.local -- tsx scripts/seed-medication-scenarios.ts",
     "seed:maintenance": "dotenv -e .env.local -- tsx scripts/seed-maintenance.ts",
     "seed:welfare": "dotenv -e .env.local -- tsx scripts/seed-welfare.ts",
-    "reset:pins": "dotenv -e .env.local -- tsx scripts/reset-pins.ts"
+    "reset:pins": "dotenv -e .env.local -- tsx scripts/reset-pins.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -55,6 +55,7 @@
     "shadcn": "^4.21.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }

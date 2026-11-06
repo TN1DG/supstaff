@@ -118,3 +118,14 @@ export function checkPrnSafety(
   }
   return { warning: null };
 }
+
+/** Outcomes that are a medication issue: they go on the handover and to the team. */
+export const MEDICATION_ISSUE_OUTCOMES = {
+  refused: "Refused",
+  omitted: "Omitted",
+  not_available: "Not available",
+} as const;
+
+export function isMedicationIssue(outcome: string): outcome is keyof typeof MEDICATION_ISSUE_OUTCOMES {
+  return outcome in MEDICATION_ISSUE_OUTCOMES;
+}

@@ -57,6 +57,13 @@
       "when": 1792439144090,
       "tag": "0007_welfare_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793922245262,
+      "tag": "0008_waking_night_checklist",
+      "breakpoints": true
     }
   ]
 }

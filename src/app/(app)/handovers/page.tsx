@@ -20,12 +20,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StartHandoverForm } from "./start-form";
+import { handoverStartDefaults } from "@/lib/handover-defaults";
 
 export const metadata: Metadata = { title: "Handovers" };
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export default async function HandoversPage({
   searchParams,
@@ -34,6 +31,7 @@ export default async function HandoversPage({
   const db = getDb();
   const isManager = hasRole(staff.role, "manager");
   const sp = await searchParams;
+  const startDefaults = await handoverStartDefaults(staff.siteId);
 
   const shiftFilter =
     typeof sp.shift === "string" &&
@@ -106,7 +104,11 @@ export default async function HandoversPage({
           <CardTitle className="text-base">Start a handover</CardTitle>
         </CardHeader>
         <CardContent>
-          <StartHandoverForm today={todayISO()} />
+          <StartHandoverForm
+            today={startDefaults.today}
+            night={startDefaults.night}
+            defaultShift={startDefaults.shift}
+          />
         </CardContent>
       </Card>
 

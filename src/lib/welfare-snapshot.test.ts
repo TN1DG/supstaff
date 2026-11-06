@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { needsActionOverWindow, snapshotAt, versionAt, type WelfareFacts } from "@/lib/welfare-snapshot";
 import type { WelfarePolicyConfig } from "@/lib/welfare-policy";
