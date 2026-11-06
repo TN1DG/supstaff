@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
     "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
@@ -19,6 +20,7 @@
     "seed:medication": "dotenv -e .env.local -- tsx scripts/seed-medication.ts",
     "seed:medication-scenarios": "dotenv -e .env.local -- tsx scripts/seed-medication-scenarios.ts",
     "seed:maintenance": "dotenv -e .env.local -- tsx scripts/seed-maintenance.ts",
+    "seed:welfare": "dotenv -e .env.local -- tsx scripts/seed-welfare.ts",
     "reset:pins": "dotenv -e .env.local -- tsx scripts/reset-pins.ts"
   },
   "dependencies": {

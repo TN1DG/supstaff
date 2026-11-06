@@ -40,6 +40,7 @@ export type StaffFormPerson = Pick<
   | "phone"
   | "active"
   | "engagedUntil"
+  | "welfareRulesDeputy"
 >;
 
 export function StaffForm({
@@ -161,6 +162,22 @@ export function StaffForm({
             </span>
           </span>
         </label>
+        {role === "support_officer" ? (
+          <label className="flex items-start gap-3">
+            <Checkbox
+              name="welfareRulesDeputy"
+              defaultChecked={person?.welfareRulesDeputy ?? false}
+              className="mt-0.5"
+            />
+            <span className="text-sm">
+              <span className="font-medium">Welfare rules deputy</span>
+              <span className="block text-muted-foreground">
+                Can edit and publish the service&rsquo;s welfare check rules
+                when the manager is away.
+              </span>
+            </span>
+          </label>
+        ) : null}
         {person ? (
           <label className="flex items-start gap-3">
             <Checkbox

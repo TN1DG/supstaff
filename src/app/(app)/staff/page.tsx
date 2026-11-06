@@ -49,6 +49,7 @@ export default async function StaffPage() {
       engagedUntil: true,
       lastLoginAt: true,
       pinHash: true,
+      welfareRulesDeputy: true,
     },
   });
 
@@ -98,6 +99,11 @@ export default async function StaffPage() {
                     {s.isAdmin ? (
                       <Badge variant="outline" className="text-xs">
                         admin
+                      </Badge>
+                    ) : null}
+                    {s.welfareRulesDeputy && s.role === "support_officer" ? (
+                      <Badge variant="outline" className="text-xs">
+                        welfare deputy
                       </Badge>
                     ) : null}
                   </span>

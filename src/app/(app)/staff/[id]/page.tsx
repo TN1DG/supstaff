@@ -30,6 +30,7 @@ export default async function EditStaffPage({
       phone: true,
       active: true,
       engagedUntil: true,
+      welfareRulesDeputy: true,
     },
   });
   if (!person) notFound();

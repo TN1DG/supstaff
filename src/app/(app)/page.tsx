@@ -6,6 +6,8 @@ import { requireCareStaff } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/icon";
 import { currentNightOf } from "@/lib/night-checks";
+import { loadWelfareFacts } from "@/lib/welfare-queries";
+import { countByKind, snapshotAt } from "@/lib/welfare-snapshot";
 
 function greeting(d = new Date()) {
   const h = d.getHours();
@@ -44,7 +46,8 @@ export default async function TodayPage() {
   startOfDay.setHours(0, 0, 0, 0);
   const checkDate = currentNightOf(new Date());
 
-  const [residentCount, todaysHandovers, tonightRounds] = await Promise.all([
+  const now = new Date();
+  const [residentCount, todaysHandovers, tonightRounds, welfareFacts] = await Promise.all([
     db.$count(residents, and(eq(residents.siteId, staff.siteId), eq(residents.status, "active"))),
     db.$count(
       handovers,
@@ -60,7 +63,29 @@ export default async function TodayPage() {
       ),
       columns: { id: true, roundTime: true, status: true },
     }),
+    loadWelfareFacts(staff.siteId, new Date(now.getTime() - 24 * 3_600_000)),
   ]);
+
+  const welfare = countByKind(snapshotAt(welfareFacts, now));
+  const welfareNeeding = welfare.escalating + welfare.overdue;
+  const welfareLink = {
+    href: "/welfare",
+    icon: "HeartHandshake",
+    title: welfareNeeding > 0 ? "Welfare checks need action" : "Welfare checks",
+    body:
+      welfareNeeding > 0
+        ? [
+            welfare.escalating ? `${welfare.escalating} escalating` : null,
+            welfare.overdue ? `${welfare.overdue} overdue` : null,
+            welfare.due_soon ? `${welfare.due_soon} due within the hour` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") + " — open the board for the next steps."
+        : welfare.due_soon > 0
+          ? `${welfare.due_soon} resident${welfare.due_soon === 1 ? "" : "s"} due a check within the hour.`
+          : "Everyone's been seen or contacted on time.",
+    urgent: welfareNeeding > 0,
+  };
 
   const inProgressRound = tonightRounds.find((r) => r.status === "in_progress");
   const nightCheckLink = inProgressRound
@@ -98,11 +123,21 @@ export default async function TodayPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[nightCheckLink, ...QUICK_LINKS].map((link) => (
+        {[welfareLink, nightCheckLink, ...QUICK_LINKS].map((link) => (
           <Link key={link.href} href={link.href} className="group">
-            <Card className="h-full transition-colors group-hover:border-primary/40 group-hover:bg-accent/30">
+            <Card
+              className={`h-full transition-colors group-hover:border-primary/40 group-hover:bg-accent/30 ${
+                "urgent" in link && link.urgent ? "border-destructive/40" : ""
+              }`}
+            >
               <CardHeader>
-                <div className="mb-1 flex size-9 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <div
+                  className={`mb-1 flex size-9 items-center justify-center rounded-lg ${
+                    "urgent" in link && link.urgent
+                      ? "bg-destructive/12 text-destructive"
+                      : "bg-primary/12 text-primary"
+                  }`}
+                >
                   <Icon name={link.icon} className="size-4.5" />
                 </div>
                 <CardTitle className="text-base">{link.title}</CardTitle>
