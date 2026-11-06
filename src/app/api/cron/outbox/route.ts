@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
-import { and, eq, lt } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { outbox } from "@/db/schema";
 import { authorizeCron } from "@/lib/cron";
+import { OUTBOX_MAX_ATTEMPTS } from "@/lib/outbox";
 import { pruneRateLimits } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Drains the transactional outbox. Until the Salesforce / Saw-it APIs are wired
- * (Phase 5), this simply ages out unsent rows and records attempts so the queue
- * is observable. Protected by CRON_SECRET.
+ * Drains the transactional outbox. Until the Salesforce / Saw-it / email
+ * deliveries are wired (Phase 5) nothing is sent: each run records an attempt
+ * and why it didn't go, and after `OUTBOX_MAX_ATTEMPTS` the row is parked as
+ * `failed` so it shows up for managers (Service settings → Delivery queue)
+ * instead of retrying forever. Protected by CRON_SECRET.
  *
  * Runs daily on Hobby; move to a tighter schedule in vercel.json once the
  * project is on a Pro plan and real delivery is enabled.
@@ -19,34 +22,28 @@ export async function GET(request: Request) {
   const denied = authorizeCron(request);
   if (denied) return denied;
 
-  const db = getDb();
-  const cutoff = new Date(Date.now() - 5 * 60 * 1000);
-
   // Housekeeping: drop stale brute-force counters while we're here.
   const prunedRateLimits = await pruneRateLimits();
 
-  const pending = await db.query.outbox.findMany({
-    where: and(eq(outbox.status, "pending")),
-    limit: 50,
-  });
-
-  let touched = 0;
-  for (const row of pending) {
-    // Placeholder: real delivery lands in Phase 5. For now, keep the row
-    // pending but count the attempt so stuck items are visible.
-    await db
-      .update(outbox)
-      .set({ attempts: row.attempts + 1, lastAttemptAt: new Date() })
-      .where(and(eq(outbox.id, row.id), lt(outbox.attempts, 100)));
-    touched++;
-  }
+  // One statement for the whole queue. Right-hand sides see the row's
+  // pre-update values, so `attempts + 1` is this attempt's number.
+  const attempted = await getDb()
+    .update(outbox)
+    .set({
+      attempts: sql`${outbox.attempts} + 1`,
+      lastAttemptAt: new Date(),
+      lastError: sql`'Delivery to ' || ${outbox.target} || ' is not switched on yet'`,
+      status: sql`case when ${outbox.attempts} + 1 >= ${OUTBOX_MAX_ATTEMPTS}
+        then 'failed'::outbox_status else ${outbox.status} end`,
+    })
+    .where(eq(outbox.status, "pending"))
+    .returning({ status: outbox.status });
 
   return NextResponse.json({
     ok: true,
-    checked: pending.length,
-    touched,
+    attempted: attempted.length,
+    failed: attempted.filter((r) => r.status === "failed").length,
     prunedRateLimits,
     note: "External delivery not yet enabled (Phase 5).",
-    cutoff,
   });
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { PenLine, CheckCircle2, AlertTriangle } from "lucide-react";
 import { getDb } from "@/db";
 import { handovers, outbox } from "@/db/schema";
@@ -61,18 +61,19 @@ export default async function HandoverPage({
 
   // The notFound() guard above has to run first, but these two are independent
   // of each other — two round trips here instead of three.
-  const [payload, queued] = await Promise.all([
+  const [payload, salesforceJob] = await Promise.all([
     buildHandoverPayload(id, staff.siteId),
     isDraft
-      ? Promise.resolve(0)
-      : db.$count(
-          outbox,
-          and(
+      ? Promise.resolve(undefined)
+      : db.query.outbox.findFirst({
+          where: and(
             eq(outbox.entityType, "handover"),
             eq(outbox.entityId, id),
             eq(outbox.target, "salesforce"),
           ),
-        ),
+          orderBy: [desc(outbox.createdAt)],
+          columns: { status: true },
+        }),
   ]);
 
   const dateLong = new Intl.DateTimeFormat("en-GB", {
@@ -239,7 +240,7 @@ export default async function HandoverPage({
             <SalesforcePanel
               handoverId={id}
               summary={handoverToText(payload)}
-              synced={queued > 0}
+              status={salesforceJob?.status ?? null}
             />
           ) : null}
 
