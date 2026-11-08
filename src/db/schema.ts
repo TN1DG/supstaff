@@ -1611,3 +1611,4 @@ export type WelfareEscalationActionValue = (typeof welfareEscalationAction.enumV
 export type RoundTimelinessValue = (typeof roundTimeliness.enumValues)[number];
 export type ChecklistResultStatusValue = (typeof checklistResultStatus.enumValues)[number];
 export type FollowUpStatusValue = (typeof followUpStatus.enumValues)[number];
+export type OutboxStatusValue = (typeof outboxStatus.enumValues)[number];

@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { siteSettings } from "@/db/schema";
+import { outbox, siteSettings } from "@/db/schema";
 import { assertRole } from "@/lib/rbac";
 import { writeAudit, requestContext, auditActor } from "@/lib/audit";
 import { fieldErrors } from "@/lib/forms";
@@ -123,4 +124,40 @@ export async function saveServiceSettings(
   revalidatePath("/waking-night");
   revalidatePath("/night-checks");
   return { ok: true };
+}
+
+export type RetryOutboxState = { error?: string; ok?: boolean; requeued?: number };
+
+/**
+ * Put every failed delivery back in the queue with a fresh attempt budget —
+ * for when an integration has been fixed or switched on.
+ */
+export async function retryFailedOutbox(): Promise<RetryOutboxState> {
+  const staffMember = await assertRole("manager");
+  const ctx = await requestContext();
+
+  const requeued = await getDb().transaction(async (tx) => {
+    const rows = await tx
+      .update(outbox)
+      .set({ status: "pending", attempts: 0, lastError: null })
+      .where(and(eq(outbox.siteId, staffMember.siteId), eq(outbox.status, "failed")))
+      .returning({ id: outbox.id });
+    if (rows.length > 0) {
+      await writeAudit(
+        tx,
+        {
+          ...auditActor(staffMember),
+          action: "outbox.retry_failed",
+          entityType: "outbox",
+          entityId: staffMember.siteId,
+          after: { requeued: rows.length },
+        },
+        ctx,
+      );
+    }
+    return rows.length;
+  });
+
+  revalidatePath("/settings/service");
+  return { ok: true, requeued };
 }
