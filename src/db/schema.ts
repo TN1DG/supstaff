@@ -210,6 +210,12 @@ export const staff = pgTable("staff", {
    */
   welfareRulesDeputy: boolean("welfare_rules_deputy").notNull().default(false),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  /**
+   * Copied into the session token at sign-in and compared on every request.
+   * Bumping it ends every existing session for this person (deactivation,
+   * manager password reset).
+   */
+  sessionVersion: integer("session_version").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

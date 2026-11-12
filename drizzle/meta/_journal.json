@@ -64,6 +64,13 @@
       "when": 1793922245262,
       "tag": "0008_waking_night_checklist",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794495195500,
+      "tag": "0009_session_version_and_append_only_audit",
+      "breakpoints": true
     }
   ]
 }
