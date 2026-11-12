@@ -465,5 +465,11 @@ tables in [`src/db/schema.ts`](../src/db/schema.ts)
 | 2026-09-26 | `52154b9` | Indexes, fewer duplicate queries, dead code removed | Performance |
 | 2026-09-26 | `71e6f1e` | Shared `FormError` / `PinField` | De-duplicate UI |
 | 2026-09-26 | `e5604bf` | Tidy `.gitignore` | Housekeeping |
+| 2026-11-12 | `fd65fc7` | Session revocation: `staff.session_version` + per-request staff check in the JWT callback ([`session-check.ts`](../src/lib/session-check.ts)); bumped on deactivate and manager password reset; role changes apply immediately. Removed the cookie-only `/login → /` bounce in `proxy.ts` | Deactivated staff kept access until their JWT expired (up to 12h); a stale cookie could redirect-loop |
+| 2026-11-12 | `cebaff6` | Audit log append-only in Postgres: trigger blocks UPDATE/DELETE/TRUNCATE except the FK set-null cascade (migration `0009`); migrations now applied to PGlite in tests | "Append-only" was only a convention in app code |
+| 2026-11-12 | `7f8b327` | Audit every CSV export and PDF view/download (`*.export_csv`, `*.pdf_download`), written before the file is returned so an unrecorded export fails | UK GDPR accountability: who took resident data out, and when |
+| 2026-11-12 | `d79aba7` | Shared [`csv.ts`](../src/lib/csv.ts) neutralises leading `= + - @` tab/CR in every CSV export | Handover and medication exports were open to CSV/formula injection |
+| 2026-11-12 | `4584696` | Security headers in `next.config.ts`; nonce-based CSP (`'strict-dynamic'`) per request in `proxy.ts`, nonce passed to next-themes | XSS and clickjacking defence; no security headers before |
+| 2026-11-12 | `f23450d` | GitHub Actions CI (typegen → typecheck → lint → test → build) and Dependabot | Checks weren't enforced on PRs; dependency updates were manual |
 
 </details>
