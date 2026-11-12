@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, not } from "drizzle-orm";
+import { and, eq, not, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { staff, staffRole } from "@/db/schema";
@@ -170,6 +170,11 @@ export async function updateStaff(
           welfareRulesDeputy:
             data.role === "support_officer" && data.welfareRulesDeputy === "on",
           active: data.active === "on",
+          // Deactivating ends every open session, and they stay ended if the
+          // account is later reactivated.
+          ...(data.active !== "on"
+            ? { sessionVersion: sql`${staff.sessionVersion} + 1` }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(staff.id, id));
@@ -226,7 +231,13 @@ export async function resetStaffPassword(id: string): Promise<{
   await db.transaction(async (tx) => {
     await tx
       .update(staff)
-      .set({ passwordHash, mustChangePassword: true, updatedAt: new Date() })
+      .set({
+        passwordHash,
+        mustChangePassword: true,
+        // A reset means the old password may be compromised — end its sessions.
+        sessionVersion: sql`${staff.sessionVersion} + 1`,
+        updatedAt: new Date(),
+      })
       .where(eq(staff.id, id));
     await writeAudit(
       tx,

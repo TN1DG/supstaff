@@ -8,6 +8,7 @@ import { staff } from "@/db/schema";
 import type { StaffRole } from "@/db/schema";
 import { hashSecret, verifySecret } from "@/lib/password";
 import { rateLimitHit, rateLimitClear, rateLimitStatus } from "@/lib/rate-limit";
+import { engagementEnded, sessionRevoked } from "@/lib/session-check";
 
 // Brute-force + argon2-DoS guard: a few tries per email per window, then a
 // lockout. Checked before we spend CPU on a hash.
@@ -44,6 +45,7 @@ declare module "next-auth/jwt" {
     siteId: string;
     isAdmin: boolean;
     mustChangePassword: boolean;
+    sessionVersion: number;
     loginAt: number;
     lastSeen: number;
   }
@@ -75,14 +77,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           where: eq(staff.email, email),
         });
 
-        const engagementEnded =
-          !!person?.engagedUntil &&
-          new Date(person.engagedUntil) < new Date(new Date().toDateString());
-
         // Always run one argon2 op so timing doesn't reveal whether the
         // account exists or is active.
         const ok =
-          person && person.active && !engagementEnded
+          person && person.active && !engagementEnded(person.engagedUntil)
             ? await verifySecret(person.passwordHash, password)
             : (await hashSecret(DUMMY_PASSWORD), false);
 
@@ -105,6 +103,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           siteId: person.siteId,
           isAdmin: person.isAdmin,
           mustChangePassword: person.mustChangePassword,
+          sessionVersion: person.sessionVersion,
         };
       },
     }),
@@ -120,12 +119,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           siteId: string;
           isAdmin: boolean;
           mustChangePassword: boolean;
+          sessionVersion: number;
         };
         token.staffId = u.id;
         token.role = u.role;
         token.siteId = u.siteId;
         token.isAdmin = u.isAdmin;
         token.mustChangePassword = u.mustChangePassword;
+        token.sessionVersion = u.sessionVersion;
         token.loginAt = now;
         token.lastSeen = now;
         return token;
@@ -148,6 +149,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       ) {
         return null as unknown as JWT;
       }
+
+      // Revocation. A JWT can't be recalled once issued, so it's only trusted
+      // while the staff row behind it agrees: one primary-key read per request
+      // ends access as soon as someone is deactivated, their engagement ends or
+      // their sessions are revoked, and applies role changes immediately.
+      if (!token.staffId) return null as unknown as JWT;
+      const current = await getDb().query.staff.findFirst({
+        where: eq(staff.id, token.staffId),
+        columns: {
+          active: true,
+          engagedUntil: true,
+          sessionVersion: true,
+          role: true,
+          siteId: true,
+          isAdmin: true,
+        },
+      });
+      if (!current || sessionRevoked(current, token.sessionVersion)) {
+        return null as unknown as JWT;
+      }
+      token.role = current.role;
+      token.siteId = current.siteId;
+      token.isAdmin = current.isAdmin;
+
       token.lastSeen = now;
       return token;
     },

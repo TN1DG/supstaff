@@ -22,12 +22,10 @@ export function proxy(request: NextRequest) {
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );
 
-  if (isPublic) {
-    if (pathname === "/login" && hasSessionCookie(request)) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
-    return NextResponse.next();
-  }
+  // No cookie-based bounce from /login to / — a cookie can outlive its session
+  // (revoked, timed out), and the layout would send it straight back here in a
+  // loop. The login page runs the real auth() check and redirects if valid.
+  if (isPublic) return NextResponse.next();
 
   if (!hasSessionCookie(request)) {
     const loginUrl = new URL("/login", request.url);
