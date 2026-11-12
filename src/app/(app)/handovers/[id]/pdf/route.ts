@@ -1,4 +1,6 @@
+import { getDb } from "@/db";
 import { guardRoute } from "@/lib/rbac";
+import { auditDataExport } from "@/lib/audit";
 import { rateLimitHit } from "@/lib/rate-limit";
 import { buildHandoverPayload, shiftLabel } from "@/lib/handover-payload";
 import { renderHandoverPdf } from "@/lib/handover-pdf";
@@ -33,6 +35,13 @@ export async function GET(
 
   const pdf = await renderHandoverPdf(payload);
   const filename = `handover-${payload.date}-${shiftLabel(payload.shift).toLowerCase()}.pdf`;
+
+  await auditDataExport(getDb(), staff, {
+    action: "handover.pdf_download",
+    entityType: "handover",
+    entityId: id,
+    details: { date: payload.date, shift: payload.shift },
+  });
 
   return new Response(new Uint8Array(pdf), {
     headers: {

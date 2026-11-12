@@ -1,4 +1,6 @@
+import { getDb } from "@/db";
 import { canManageBuilding, guardRoute } from "@/lib/rbac";
+import { auditDataExport } from "@/lib/audit";
 import { rateLimitHit } from "@/lib/rate-limit";
 import {
   MAINTENANCE_CATEGORY_LABEL,
@@ -95,6 +97,12 @@ export async function GET(request: Request) {
       ]),
     ),
   ];
+
+  await auditDataExport(getDb(), staff, {
+    action: "building.export_csv",
+    entityType: "maintenance_report",
+    details: { ...filters, reports: reports.length, findings: findings.length },
+  });
 
   return new Response(lines.join("\n"), {
     headers: {

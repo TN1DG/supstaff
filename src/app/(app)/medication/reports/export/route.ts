@@ -1,4 +1,6 @@
+import { getDb } from "@/db";
 import { guardRoute } from "@/lib/rbac";
+import { auditDataExport } from "@/lib/audit";
 import { rateLimitHit } from "@/lib/rate-limit";
 import { roundLabel } from "@/lib/medication";
 import {
@@ -100,6 +102,13 @@ export async function GET(request: Request) {
       );
     }
   }
+
+  await auditDataExport(getDb(), staff, {
+    action: "medication.export_csv",
+    entityType: residentId ? "resident" : "medication_report",
+    entityId: residentId ?? null,
+    details: { kind, from, to, residentId: residentId ?? null },
+  });
 
   return new Response(lines.join("\n"), {
     headers: {

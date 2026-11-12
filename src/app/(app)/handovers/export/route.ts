@@ -2,6 +2,7 @@ import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { getDb } from "@/db";
 import { handovers } from "@/db/schema";
 import { guardRoute } from "@/lib/rbac";
+import { auditDataExport } from "@/lib/audit";
 import { rateLimitHit } from "@/lib/rate-limit";
 import { shiftLabel } from "@/lib/handover-payload";
 
@@ -100,6 +101,12 @@ export async function GET(request: Request) {
       );
     }
   }
+
+  await auditDataExport(getDb(), staff, {
+    action: "handover.export_csv",
+    entityType: "handover",
+    details: { shift, from, to, incidentsOnly, rows: lines.length - 1 },
+  });
 
   return new Response(lines.join("\n"), {
     headers: {

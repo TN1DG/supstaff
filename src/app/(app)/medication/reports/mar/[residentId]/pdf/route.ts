@@ -1,4 +1,6 @@
+import { getDb } from "@/db";
 import { guardRoute } from "@/lib/rbac";
+import { auditDataExport } from "@/lib/audit";
 import { rateLimitHit } from "@/lib/rate-limit";
 import { isoDate } from "@/lib/medication";
 import { buildMarPayload } from "@/lib/medication-payload";
@@ -46,6 +48,13 @@ export async function GET(
 
   const pdf = await renderMarPdf(payload);
   const filename = `mar-${payload.resident.name.replace(/\s+/g, "-").toLowerCase()}-${payload.weekStart}.pdf`;
+
+  await auditDataExport(getDb(), staff, {
+    action: "mar.pdf_download",
+    entityType: "resident",
+    entityId: residentId,
+    details: { weekStart: payload.weekStart },
+  });
 
   return new Response(new Uint8Array(pdf), {
     headers: {

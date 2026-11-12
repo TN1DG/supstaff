@@ -10,6 +10,7 @@ import type { StatusTone } from "@/lib/status-tone";
 export function categorizeAuditAction(action: string): StatusTone {
   if (/pin|password/i.test(action)) return "danger";
   if (action.endsWith(".archive")) return "warning";
+  if (action.endsWith(".export_csv") || action.endsWith(".pdf_download")) return "warning";
   if (action.endsWith(".restore") || action.endsWith(".update")) return "info";
   return "success";
 }
