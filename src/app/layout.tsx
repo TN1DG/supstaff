@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Figtree, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
@@ -25,7 +26,11 @@ export const metadata: Metadata = {
     "A calm, welcoming workspace for support staff — handovers, medication, night checks and building reports in one place.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Set by src/proxy.ts. Reading headers also keeps every page dynamically
+  // rendered, which a per-request nonce needs.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html
       lang="en-GB"
@@ -33,7 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${sans.variable} ${mono.variable} h-full`}
     >
       <body className="min-h-full">
-        <Providers>{children}</Providers>
+        <Providers nonce={nonce}>{children}</Providers>
         <Toaster richColors closeButton position="top-center" />
       </body>
     </html>
