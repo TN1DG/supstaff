@@ -1,5 +1,6 @@
 import { getDb } from "@/db";
 import { guardRoute } from "@/lib/rbac";
+import { csvCell } from "@/lib/csv";
 import { auditDataExport } from "@/lib/audit";
 import { rateLimitHit } from "@/lib/rate-limit";
 import { roundLabel } from "@/lib/medication";
@@ -12,11 +13,6 @@ import {
 export const dynamic = "force-dynamic";
 
 const EXPORT_LIMIT = { limit: 10, windowSec: 60 };
-
-function csvCell(value: unknown): string {
-  const s = value == null ? "" : String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
 
 export async function GET(request: Request) {
   const staff = await guardRoute("manager");

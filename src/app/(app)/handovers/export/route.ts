@@ -2,6 +2,7 @@ import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { getDb } from "@/db";
 import { handovers } from "@/db/schema";
 import { guardRoute } from "@/lib/rbac";
+import { csvCell } from "@/lib/csv";
 import { auditDataExport } from "@/lib/audit";
 import { rateLimitHit } from "@/lib/rate-limit";
 import { shiftLabel } from "@/lib/handover-payload";
@@ -11,11 +12,6 @@ export const dynamic = "force-dynamic";
 // Full-history CSV build — one manager pulling it in a loop shouldn't hammer
 // the DB.
 const EXPORT_LIMIT = { limit: 10, windowSec: 60 };
-
-function csvCell(value: unknown): string {
-  const s = value == null ? "" : String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
 
 export async function GET(request: Request) {
   const staff = await guardRoute("manager");
